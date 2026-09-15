@@ -78,11 +78,23 @@ const args = [
   `--use-file-for-fake-audio-capture=${micFile}`,
   songPath,
 ];
-const child = spawn(exe, args, {
-  env: { ...process.env, OneDrive: '', OneDriveConsumer: '', OneDriveCommercial: '' },
-  stdio: 'ignore',
-  detached: false,
-});
+/* Windows needs its own launcher for this.
+ *
+ * Node's spawn refuses a packaged windowed application outright — "spawn
+ * UNKNOWN", measured on the build runner — so on Windows the app is started
+ * through PowerShell's Start-Process, which is what actually knows how to
+ * launch one. Everywhere else spawn is fine. */
+const onWindows = process.platform === 'win32';
+const quoted = (a) => `'${String(a).replace(/'/g, "''")}'`;
+const env = { ...process.env, OneDrive: '', OneDriveConsumer: '', OneDriveCommercial: '' };
+
+const child = onWindows
+  ? spawn('powershell.exe', [
+      '-NoProfile', '-NonInteractive', '-Command',
+      `Start-Process -FilePath ${quoted(exe)} -ArgumentList @(${args.map(quoted).join(',')})`,
+    ], { env, stdio: 'ignore', windowsHide: true })
+  : spawn(exe, args, { env, stdio: 'ignore' });
+
 child.on('error', (err) => { console.error('The app would not start at all:', err); });
 
 // Wait for the port to answer, rather than guessing how long start-up takes.
@@ -270,9 +282,16 @@ try {
     refusal.error ?? refusal.after);
 } finally {
   await browser.close().catch(() => {});
+  /* Start-Process launches a detached app, so killing the PowerShell that
+     started it leaves the app running. Ask Windows to close it by name. */
+  if (onWindows) {
+    try {
+      spawn('taskkill.exe', ['/IM', 'TVA Player.exe', '/F'], { stdio: 'ignore', windowsHide: true });
+    } catch { /* already gone */ }
+  }
   try { child.kill(); } catch {}
-  await new Promise((r) => setTimeout(r, 500));
-  await rm(work, { recursive: true, force: true });
+  await new Promise((r) => setTimeout(r, 1200));
+  await rm(work, { recursive: true, force: true }).catch(() => {});
 }
 
 const failed = results.filter((r) => !r.passed);

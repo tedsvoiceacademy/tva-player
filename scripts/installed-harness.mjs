@@ -80,22 +80,72 @@ const args = [
 ];
 const onWindows = process.platform === 'win32';
 
-/* The environment the app is given.
+/* STARTING THE PACKAGED APP ON WINDOWS.
  *
- * OneDrive has to be absent so the settings land in the work folder rather than
- * in a real OneDrive — and it has to be ABSENT, not set to an empty string.
- * An environment variable whose value is "" breaks process creation on Windows:
- * Node's own spawn failed with "spawn UNKNOWN", and handing the same
- * environment to PowerShell made Start-Process report the executable as "not
- * compatible with the version of Windows you're running". Two different and
- * equally misleading errors, both from this. Deleting the keys fixes both. */
+ * This took several rounds and two wrong explanations, both of which were
+ * written down confidently and were false: that Node's spawn refuses packaged
+ * windowed applications, and that an empty-valued environment variable was
+ * breaking process creation. Removing the empty values changed nothing —
+ * "spawn UNKNOWN" came back unchanged.
+ *
+ * So rather than guess a fourth time, several ways of starting it are tried in
+ * turn and the one that works is printed. A run that fails then says which
+ * methods were tried and how each one failed, which is evidence instead of
+ * another theory.
+ */
 const env = { ...process.env };
 for (const key of Object.keys(env)) {
+  // The app must not write its settings into a real OneDrive folder.
   if (/^onedrive/i.test(key)) delete env[key];
 }
 
-const child = spawn(exe, args, { env, stdio: 'ignore', windowsHide: true });
-child.on('error', (err) => { console.error('The app would not start at all:', err); });
+const attempts = [
+  {
+    name: 'spawn, with the OneDrive variables removed',
+    run: () => spawn(exe, args, { env, stdio: 'ignore', windowsHide: true }),
+  },
+  {
+    name: 'spawn, inheriting the environment untouched',
+    run: () => spawn(exe, args, { stdio: 'ignore', windowsHide: true }),
+  },
+  {
+    name: 'cmd.exe start',
+    when: onWindows,
+    run: () => spawn('cmd.exe', ['/c', 'start', '', '/b', exe, ...args],
+      { env, stdio: 'ignore', windowsHide: true }),
+  },
+  {
+    name: 'spawn through a shell',
+    when: onWindows,
+    run: () => spawn(`"${exe}"`, args.map((a) => `"${a}"`),
+      { env, stdio: 'ignore', windowsHide: true, shell: true }),
+  },
+];
+
+let child = null;
+const tried = [];
+for (const attempt of attempts) {
+  if (attempt.when === false) continue;
+  try {
+    const started = attempt.run();
+    // spawn throws synchronously for this failure, so reaching here is success.
+    await new Promise((resolve, reject) => {
+      const ok = setTimeout(resolve, 400);
+      started.once('error', (err) => { clearTimeout(ok); reject(err); });
+    });
+    child = started;
+    console.log(`Started with: ${attempt.name}\n`);
+    break;
+  } catch (err) {
+    tried.push(`${attempt.name}: ${err.code ?? err.message}`);
+  }
+}
+
+if (!child) {
+  console.error('None of the ways of starting the app worked:');
+  for (const line of tried) console.error(`  ${line}`);
+  process.exit(1);
+}
 
 // Wait for the port to answer, rather than guessing how long start-up takes.
 let browser = null;

@@ -34,6 +34,11 @@ export class Player {
     this.practiceTime = 0;
     this.onTime = () => {};
     this.onState = () => {};
+    /* How many times the practice engine has actually been built. One per song
+       is correct. It is counted rather than assumed because the bug that made
+       this necessary — a fresh engine per pixel of knob movement — showed no
+       symptom other than the app locking up, and a test cannot see that. */
+    this.engineStarts = 0;
   }
 
   /* ---- Opening ---------------------------------------------------------- */
@@ -88,6 +93,7 @@ export class Player {
   async play() {
     await resumeSharedAudio();
     if (this.mode === 'practice') {
+      this._practicePlaying = true;
       this.stretch.schedule({ active: true });
       this.onState('playing');
       return;
@@ -97,6 +103,7 @@ export class Player {
 
   pause() {
     if (this.mode === 'practice') {
+      this._practicePlaying = false;
       this.stretch.schedule({ active: false });
       this.onState('paused');
       return;
@@ -137,12 +144,27 @@ export class Player {
 
   /* ---- Practice mode ---------------------------------------------------- */
 
-  /** Decode the song and hand it to the stretch engine, keeping the position.
-   *  Returns null when the song is too long to hold in memory. */
+/* Decode the song and hand it to the stretch engine, keeping the position.
+   Returns the node, or null when the song is too long to hold in memory.
+
+   ONE AT A TIME. Dragging a knob fires an input event on every pixel of
+   movement, and the first version of this started a fresh decode on each one:
+   twenty movements meant twenty copies of the whole song being decoded at
+   once, which locked the app up solid. Ted hit it on his first try. The
+   in-flight promise is handed back to every later caller, so a drag starts
+   exactly one engine however far it travels. */
   async enterPracticeMode(fetchBytes) {
     if (this.mode === 'practice') return this.stretch;
+    if (this._entering) return this._entering;
     if (this.duration > PRACTICE_MAX_SECONDS) return null;
 
+    this._entering = this._enterPracticeMode(fetchBytes)
+      .finally(() => { this._entering = null; });
+    return this._entering;
+  }
+
+  async _enterPracticeMode(fetchBytes) {
+    this.engineStarts++;
     const at = this.currentTime;
     const wasPlaying = this.playing;
     if (this.el) this.el.pause();
@@ -171,6 +193,7 @@ export class Player {
     });
     node.schedule({ active: wasPlaying, input: at });
     this.practiceTime = at;
+    this.onState(wasPlaying ? 'playing' : 'paused');
     return node;
   }
 
@@ -208,6 +231,7 @@ export class Player {
     // The context itself is NOT closed — see context.js.
     setSource(this.graph, null);
     this.el = null; this.elSource = null; this.stretch = null; this.buffer = null;
-    this.mode = 'idle'; this.practiceTime = 0;
+    this.mode = 'idle'; this.practiceTime = 0; this._practicePlaying = false;
+    this._entering = null; this.engineStarts = 0;
   }
 }

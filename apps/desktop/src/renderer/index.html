@@ -6,38 +6,159 @@
 <link rel="stylesheet" href="./ui/app.css">
 </head>
 <body>
-<main id="app">
-  <header class="face">
-    <div class="face-name" id="now-name">NO SONG OPEN</div>
-    <div class="face-clock"><span id="t-now">0:00</span> <span class="sep">/</span> <span id="t-total">0:00</span></div>
-  </header>
+<div id="tp">
 
-  <canvas id="wave" height="96" aria-label="The song, drawn from start to end. Click to jump to a spot."></canvas>
+  <!-- THE CHASSIS. One physical unit: a dark case holding a lit panel, a
+       full-width wave and a bank of controls. Ported from the members player,
+       which Ted settled on after five reference pictures of real audio gear. -->
+  <main class="rack">
 
-  <section class="transport" aria-label="Playback">
-    <button id="open" class="pill">Open a song</button>
-    <button id="back10" class="round" title="Back ten seconds">&#8630;10</button>
-    <button id="play" class="round play" disabled>Play</button>
-    <button id="fwd10" class="round" title="Forward ten seconds">10&#8631;</button>
-    <button id="stop" class="round" title="Stop and go back to the start">Stop</button>
+    <div class="face">
+      <div class="readout">
+        <div class="r-top">
+          <span class="dname" id="now-name">NO SONG OPEN</span>
+          <span class="lamps" aria-hidden="true">
+            <i class="lamp" id="lamp-play" title="Playing"></i>
+            <i class="lamp" id="lamp-loop" title="Looping"></i>
+          </span>
+        </div>
+        <div class="r-clock">
+          <span id="t-now">0:00</span><span class="sep">/</span><span id="t-total">0:00</span>
+        </div>
+        <div class="r-sub" id="msg" role="status" aria-live="polite">Open a song to start.</div>
+      </div>
+
+      <div class="face-side">
+        <button type="button" id="open" class="pill">
+          <span class="ic" aria-hidden="true">
+            <svg viewBox="0 0 24 24"><path d="M3 5h6l2 2h10v12H3zm2 4v8h14V9z"/></svg>
+          </span>Open a song
+        </button>
+      </div>
+    </div>
+
+    <div class="well">
+      <canvas id="wave" aria-label="The song, drawn from start to end. Click to jump to a spot, or drag across it to mark a part."></canvas>
+      <div class="ruler" id="ruler" aria-hidden="true"></div>
+    </div>
+    <div class="bench">
+      <div class="transport">
+        <button type="button" id="back10" class="tbtn" aria-label="Back ten seconds">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5V1L7 6l5 5V7a6 6 0 1 1-6 6H4a8 8 0 1 0 8-8z"/></svg>
+        </button>
+        <button type="button" id="play" class="tbtn main" aria-label="Play" disabled>
+          <svg id="ico-play" class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5l12 7-12 7z"/></svg>
+          <svg id="ico-pause" class="ico off" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 5h4v14H7zM13 5h4v14h-4z"/></svg>
+        </button>
+        <button type="button" id="fwd10" class="tbtn" aria-label="Forward ten seconds">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5V1l5 5-5 5V7a6 6 0 1 0 6 6h2a8 8 0 1 1-8-8z"/></svg>
+        </button>
+        <button type="button" id="stop" class="tbtn" aria-label="Stop and go back to the start">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>
+        </button>
+      </div>
+
+      <p class="wavehint">Click the wave to jump to a spot.<br>Drag across it to mark a part to repeat.</p>
+
+      <div class="bank">
+        <div class="knob" data-knob="speed">
+          <svg class="dial" viewBox="0 0 64 64" aria-hidden="true">
+            <circle class="k-track" cx="32" cy="32" r="26"/><circle class="k-fill" cx="32" cy="32" r="26"/>
+            <circle class="k-cap" cx="32" cy="32" r="18"/><line class="k-ptr" x1="32" y1="32" x2="32" y2="16"/>
+          </svg>
+          <input type="range" id="speed" min="50" max="120" step="1" value="100" aria-label="Speed"/>
+          <span class="k-name">Speed</span><output class="k-val" id="speed-val">Normal</output>
+        </div>
+        <div class="knob" data-knob="key">
+          <svg class="dial" viewBox="0 0 64 64" aria-hidden="true">
+            <circle class="k-track" cx="32" cy="32" r="26"/><circle class="k-fill" cx="32" cy="32" r="26"/>
+            <circle class="k-cap" cx="32" cy="32" r="18"/><line class="k-ptr" x1="32" y1="32" x2="32" y2="16"/>
+          </svg>
+          <input type="range" id="key" min="-6" max="6" step="1" value="0" aria-label="Key"/>
+          <span class="k-name">Key</span><output class="k-val" id="key-val">As recorded</output>
+        </div>
+        <div class="knob" data-knob="balance">
+          <svg class="dial" viewBox="0 0 64 64" aria-hidden="true">
+            <circle class="k-track" cx="32" cy="32" r="26"/><circle class="k-fill" cx="32" cy="32" r="26"/>
+            <circle class="k-cap" cx="32" cy="32" r="18"/><line class="k-ptr" x1="32" y1="32" x2="32" y2="16"/>
+          </svg>
+          <input type="range" id="balance" min="-100" max="100" step="1" value="0" aria-label="Sides"/>
+          <span class="k-name">Sides</span><output class="k-val" id="balance-val">Both sides</output>
+        </div>
+        <div class="knob" data-knob="volume">
+          <svg class="dial" viewBox="0 0 64 64" aria-hidden="true">
+            <circle class="k-track" cx="32" cy="32" r="26"/><circle class="k-fill" cx="32" cy="32" r="26"/>
+            <circle class="k-cap" cx="32" cy="32" r="18"/><line class="k-ptr" x1="32" y1="32" x2="32" y2="16"/>
+          </svg>
+          <input type="range" id="volume" min="0" max="100" step="1" value="100" aria-label="Volume"/>
+          <span class="k-name">Volume</span><output class="k-val" id="volume-val">100%</output>
+        </div>
+      </div>
+    </div>
+
+    <div class="strip">
+      <span class="striplab">Set sides to</span>
+      <button type="button" class="chip" data-balance="-100">Left only</button>
+      <button type="button" class="chip on" data-balance="0">Both</button>
+      <button type="button" class="chip" data-balance="100">Right only</button>
+    </div>
+
+    <div class="strip">
+      <span class="striplab">Sound</span>
+      <label class="sw" for="natural"><input type="checkbox" id="natural" checked><span>Keep voices sounding natural</span></label>
+      <label class="sw" for="lead"><input type="checkbox" id="lead"><span>Make the lead quieter</span></label>
+      <label class="sw" for="onespk"><input type="checkbox" id="onespk"><span>Same mix on both speakers</span></label>
+    </div>
+  </main>
+
+  <!-- THE BENCH. The room a desktop window has that a phone does not: the loop
+       being worked on, typed to the tenth of a second, and the parts already
+       named for this song. -->
+  <div class="deskwrap">
+  <section class="desk" aria-label="Working on one part">
+    <div class="panel">
+      <h2 class="plab">Loop one part</h2>
+      <div class="loopgrid">
+        <button type="button" id="set-a" class="chip">Mark the start</button>
+        <input type="text" id="loop-a" class="tbox" inputmode="numeric" placeholder="0:00.0"
+               autocomplete="off" aria-label="The loop starts at"/>
+        <span class="nudge">
+          <button type="button" class="tiny" data-nudge="a" data-by="-0.1" aria-label="Move the start a tenth of a second earlier">−</button>
+          <button type="button" class="tiny" data-nudge="a" data-by="0.1" aria-label="Move the start a tenth of a second later">+</button>
+        </span>
+
+        <button type="button" id="set-b" class="chip">Mark the end</button>
+        <input type="text" id="loop-b" class="tbox" inputmode="numeric" placeholder="0:00.0"
+               autocomplete="off" aria-label="The loop ends at"/>
+        <span class="nudge">
+          <button type="button" class="tiny" data-nudge="b" data-by="-0.1" aria-label="Move the end a tenth of a second earlier">−</button>
+          <button type="button" class="tiny" data-nudge="b" data-by="0.1" aria-label="Move the end a tenth of a second later">+</button>
+        </span>
+      </div>
+      <div class="looprow">
+        <button type="button" id="loop-on" class="chip" aria-pressed="false" disabled>Looping is off</button>
+        <button type="button" id="loop-clear" class="chip">Clear the marks</button>
+      </div>
+
+      <div class="namerow" id="namerow" hidden>
+        <label class="vh" for="secname">A name for this part</label>
+        <input type="text" id="secname" maxlength="40" placeholder="the bridge" autocomplete="off"/>
+        <button type="button" id="save-sec" class="chip strong">Keep this part</button>
+      </div>
+    </div>
+
+    <div class="panel">
+      <h2 class="plab">Parts you named in this song</h2>
+      <div id="sections"></div>
+      <p class="empty" id="sections-empty">Nothing named yet. Mark a start and an end, give it a name, and it will be here next time you open this song.</p>
+    </div>
   </section>
+  </div>
 
-  <section class="bank" aria-label="Practice controls">
-    <label>Speed <input type="range" id="speed" min="50" max="120" step="1" value="100"><output id="speed-out">Normal</output></label>
-    <label>Key <input type="range" id="key" min="-6" max="6" step="1" value="0"><output id="key-out">As recorded</output></label>
-    <label>Sides <input type="range" id="balance" min="-100" max="100" step="1" value="0"><output id="balance-out">Both sides</output></label>
-    <label>Volume <input type="range" id="volume" min="0" max="100" step="1" value="100"><output id="volume-out">100%</output></label>
-  </section>
-
-  <section class="switches">
-    <label><input type="checkbox" id="natural" checked> Keep voices sounding natural</label>
-    <label><input type="checkbox" id="lead"> Make the lead quieter</label>
-    <label><input type="checkbox" id="onespk"> Same mix on both speakers</label>
-  </section>
-
-  <p id="msg" role="status"></p>
-  <footer id="where"></footer>
-</main>
+  <footer class="foot">
+    <p id="where"></p>
+  </footer>
+</div>
 <script type="module" src="./ui/app.js"></script>
 </body>
 </html>

@@ -97,7 +97,10 @@ try {
   await page.waitForFunction(
     () => document.getElementById('t-now').textContent !== '0:00', { timeout: 10000 });
   check('the clock moves when play is pressed', true);
-  check('the button offers to pause', (await page.textContent('#play')) === 'Pause');
+  check('the button offers to pause',
+    (await page.getAttribute('#play', 'aria-label')) === 'Pause');
+  check('and the playing lamp is lit',
+    await page.evaluate(() => document.getElementById('lamp-play').classList.contains('lit')));
 
   const movedTo = await page.textContent('#t-now');
   await page.click('#play');
@@ -105,16 +108,86 @@ try {
   check('pause really stops it', (await page.textContent('#t-now')) === movedTo,
     `paused at ${movedTo}`);
 
-  console.log('\n--- the practice engine, inside the real app ---');
-  await page.evaluate(() => {
-    const el = document.getElementById('speed');
-    el.value = '75';
-    el.dispatchEvent(new Event('input', { bubbles: true }));
-  });
-  await page.waitForFunction(
-    () => document.getElementById('speed-out').textContent === '75% speed', { timeout: 10000 });
-  check('the speed readout says what was asked for', true);
+  console.log('\n--- dragging a knob ---');
+  {
+    /* THE BUG TED HIT ON HIS FIRST TRY. Turning a knob fires an input event on
+       every pixel of movement. The first build started a fresh copy of the
+       practice engine on each one — twenty movements meant the whole song being
+       decoded twenty times at once, and the app locked up solid.
 
+       So this drags the speed knob the way a hand does, forty events in a row,
+       and then requires the app to still be answering AND to have landed on the
+       value the knob was left at. Checking the readout alone would not have
+       caught it: the readout was the one thing that kept working. */
+    const before = Date.now();
+    await page.evaluate(async () => {
+      const el = document.getElementById('speed');
+      for (let v = 100; v >= 60; v--) {
+        el.value = String(v);
+        el.dispatchEvent(new Event('input', { bubbles: true }));
+        await new Promise((r) => setTimeout(r, 8));
+      }
+    });
+    await page.waitForFunction(
+      () => document.getElementById('speed-val').textContent === '60% speed', { timeout: 20000 });
+    const dragMs = Date.now() - before;
+
+    // Still answering, and answering quickly.
+    const alive = Date.now();
+    await page.evaluate(() => document.title);
+    check('the app still answers after a knob is dragged across its range',
+      Date.now() - alive < 2000, `${Date.now() - alive}ms to answer, drag took ${dragMs}ms`);
+
+    await page.waitForFunction(
+      () => window.__tvaMode && window.__tvaMode() === 'practice', { timeout: 25000 });
+    check('one engine is started for the whole drag, not one per movement',
+      await page.evaluate(() => window.__tvaEngineStarts?.() === 1),
+      `${await page.evaluate(() => window.__tvaEngineStarts?.())} engine(s) started`);
+    check('and the song ends up at the speed the knob was left at',
+      await page.evaluate(() => window.__tvaSpeed?.() === 0.6),
+      `engine is at ${await page.evaluate(() => window.__tvaSpeed?.())}`);
+  }
+
+  console.log('\n--- marking a part and naming it ---');
+  {
+    await page.fill('#loop-a', '0:01.0');
+    await page.dispatchEvent('#loop-a', 'change');
+    await page.fill('#loop-b', '0:03.5');
+    await page.dispatchEvent('#loop-b', 'change');
+    check('a typed time is read and shown back',
+      (await page.inputValue('#loop-a')) === '0:01.0'
+        && (await page.inputValue('#loop-b')) === '0:03.5',
+      `got ${await page.inputValue('#loop-a')} to ${await page.inputValue('#loop-b')}`);
+    check('marking a part turns looping on by itself',
+      (await page.getAttribute('#loop-on', 'aria-pressed')) === 'true');
+
+    await page.click('[data-nudge="a"][data-by="0.1"]');
+    check('a nudge moves one end by a tenth of a second',
+      (await page.inputValue('#loop-a')) === '0:01.1',
+      `got ${await page.inputValue('#loop-a')}`);
+
+    await page.click('#save-sec');
+    check('a part with no name is refused',
+      (await page.textContent('#msg')).includes('name'),
+      await page.textContent('#msg'));
+
+    await page.fill('#secname', 'the bridge');
+    await page.click('#save-sec');
+    await page.waitForSelector('#sections .item', { timeout: 5000 });
+    check('a named part appears in the list',
+      (await page.textContent('#sections .item .name')) === 'the bridge');
+    check('with the times it was marked at',
+      (await page.textContent('#sections .item .when')).includes('0:01.1'),
+      await page.textContent('#sections .item .when'));
+
+    await page.click('#loop-clear');
+    check('clearing the marks empties the boxes',
+      (await page.inputValue('#loop-a')) === '' && (await page.inputValue('#loop-b')) === '');
+    check('but keeps the part that was named',
+      (await page.$$('#sections .item')).length === 1);
+  }
+
+  console.log('\n--- the practice engine, inside the real app ---');
   /* The engine compiles its WASM from bytes it carries and registers its worklet
      from a blob. Under a content security policy those are the two things most
      likely to be refused, and refused quietly — the song would keep playing at
@@ -216,18 +289,63 @@ try {
     tail.oneSpkLeftHas660 > 0.02 && tail.oneSpkRightHas440 > 0.02,
     'for a car or Bluetooth link that carries only one side');
 
+  console.log('\n--- it all fits on the screen ---');
+  {
+    /* Ted's first words about the members player were "doesn't all show on the
+       same screen". A 1920x1080 laptop at 150% scaling gives a 720-pixel-tall
+       window, so that is checked as well as the default size. The case must be
+       whole at both: the transport, the wave and the knobs are the instrument,
+       and reaching them must never need a scroll. */
+    for (const size of [{ width: 1180, height: 760 }, { width: 1280, height: 720 }]) {
+      await page.setViewportSize(size);
+      await page.waitForTimeout(250);
+      const fit = await page.evaluate(() => {
+        const rack = document.querySelector('.rack').getBoundingClientRect();
+        const play = document.getElementById('play').getBoundingClientRect();
+        return {
+          rackBottom: Math.round(rack.bottom),
+          windowH: window.innerHeight,
+          pageScrolls: document.documentElement.scrollHeight > window.innerHeight + 1,
+          sideways: document.documentElement.scrollWidth > window.innerWidth + 1,
+          playH: Math.round(play.height),
+          hint: (document.querySelector('.wavehint')?.textContent ?? '').toLowerCase(),
+        };
+      });
+      const at = `${size.width}x${size.height}`;
+      check(`the whole case is on screen at ${at}`,
+        fit.rackBottom <= fit.windowH, `case ends at ${fit.rackBottom} of ${fit.windowH}`);
+      check(`the window itself never scrolls at ${at}`, !fit.pageScrolls);
+      check(`and nothing runs off the side at ${at}`, !fit.sideways);
+    }
+    await page.setViewportSize({ width: 1180, height: 760 });
+
+    const hint = await page.textContent('.wavehint');
+    check('the drag gesture is printed on the page, not hidden in a tooltip',
+      hint.toLowerCase().includes('drag across'),
+      'the members site learned this the hard way — a hover tooltip is invisible on a phone');
+    const title = await page.getAttribute('#wave', 'title');
+    check('and it is not ONLY in a tooltip', title === null);
+  }
+
   console.log('\n--- what it remembers ---');
+  await page.evaluate(() => {
+    const el = document.getElementById('speed');
+    el.value = '75';
+    el.dispatchEvent(new Event('input', { bubbles: true }));
+  });
+  await page.waitForFunction(
+    () => document.getElementById('speed-val').textContent === '75% speed', { timeout: 10000 });
   await page.waitForTimeout(1400);        // the save is debounced by 900ms
-  const songsDir = join(work, '..');      // settings root is printed in the footer
   const footer = await page.textContent('#where');
   check('it says where the settings are kept', footer.includes('kept in'), footer.slice(0, 90));
 
-  const rootMatch = /kept in (.+?)(?:,|\.)$/.exec(footer.trim());
-  const settingsRoot = rootMatch ? rootMatch[1] : null;
-  let saved = [];
-  if (settingsRoot) {
-    saved = await readdir(join(settingsRoot, 'songs')).catch(() => []);
-  }
+  /* The path is worked out here rather than scraped out of the footer's
+     wording. Reading it off the screen made this check fail the moment that
+     sentence was reworded, which is a test breaking on something it was never
+     meant to be watching. */
+  const settingsRoot = join(userDataDir, 'Player Settings');
+  check('and that is where they really are', footer.includes(settingsRoot), settingsRoot);
+  const saved = await readdir(join(settingsRoot, 'songs')).catch(() => []);
   check('the song\'s settings are written to their own file',
     saved.filter((f) => f.endsWith('.json') && !f.includes('conflict')).length === 1,
     `${saved.length} file(s) in songs/`);

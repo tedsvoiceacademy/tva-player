@@ -3,12 +3,22 @@
    control and the lead-quieter tail can each be told apart by ear or by maths. */
 import { writeFileSync } from 'node:fs';
 
-export function makeSong(path, { seconds = 6, sampleRate = 48000, left = 440, right = 660 } = {}) {
+export function makeSong(path, {
+  seconds = 6, sampleRate = 48000, left = 440, right = 660, shape = false,
+} = {}) {
   const frames = seconds * sampleRate;
   const data = Buffer.alloc(frames * 4);
   for (let i = 0; i < frames; i++) {
-    const l = Math.sin(2 * Math.PI * left * i / sampleRate) * 0.4;
-    const r = Math.sin(2 * Math.PI * right * i / sampleRate) * 0.4;
+    /* `shape` gives the file the loud and quiet passages a real song has, so a
+       picture of the waveform shows what a person would actually see. The
+       checks leave it off: a steady tone is what lets the balance and
+       lead-quieter measurements have an exact expected answer. */
+    const t = i / sampleRate;
+    const env = shape
+      ? 0.25 + 0.75 * Math.abs(Math.sin(t * 0.21)) * (0.55 + 0.45 * Math.abs(Math.sin(t * 1.7)))
+      : 1;
+    const l = Math.sin(2 * Math.PI * left * i / sampleRate) * 0.4 * env;
+    const r = Math.sin(2 * Math.PI * right * i / sampleRate) * 0.4 * env;
     data.writeInt16LE(Math.round(l * 32767), i * 4);
     data.writeInt16LE(Math.round(r * 32767), i * 4 + 2);
   }

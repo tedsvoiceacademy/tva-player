@@ -1,28 +1,378 @@
-/* Deliberately plain. The console design is chosen before it is built, so this
-   stylesheet exists only to keep the machinery legible while it is proven. */
-:root { --navy: #0a1628; --navy-mid: #1a2d4d; --gold: #d4a84b; --cream: #f5f0e1; }
+/* The look, ported from the members song player and given the room a desktop
+ * window has.
+ *
+ * Ted settled that design after sending five pictures of real audio gear — a
+ * TimeStretch plug-in, AIMP, WinPlay3, Media Rack, Winamp. Every one of them is
+ * the same object: a dark CHASSIS holding a LIT READOUT, a full-width WAVE, a
+ * tight cluster of TRANSPORT buttons and a BANK OF KNOBS under a section label.
+ * The first version of this app ignored all of that and shipped a web form,
+ * which was worse than what he already had on his own site.
+ *
+ * WHAT THE DESKTOP ADDS, rather than just being the phone layout stretched: the
+ * wave is twice as tall and carries a time ruler, the loop being worked on has
+ * its own bench below the case with times typed to the tenth of a second, and
+ * the parts already named for the song sit beside it instead of being buried.
+ */
+
+:root {
+  --navy-deep: #0a1628;
+  --navy-mid: #1a2d4d;
+  --gold: #d4a84b;
+  --gold-hover: #e0b85c;
+  --cream: #f5f0e1;
+  --white: #ffffff;
+  --lit: #ffd98a;
+  --ahead: #33507f;
+}
+
 * { box-sizing: border-box; }
-body { margin: 0; background: var(--navy); color: var(--cream);
-  font: 15px/1.5 "Segoe UI", system-ui, sans-serif; }
-#app { max-width: 980px; margin: 0 auto; padding: 24px 16px 40px; }
-.face { display: flex; justify-content: space-between; align-items: baseline;
-  background: #06101d; border-radius: 6px; padding: 14px 18px; margin-bottom: 14px; }
-.face-name { color: var(--gold); font-family: Consolas, ui-monospace, monospace;
-  letter-spacing: .06em; }
-.face-clock { font-variant-numeric: tabular-nums; font-family: Consolas, ui-monospace, monospace; }
-.sep { opacity: .4; }
-canvas { width: 100%; height: 96px; display: block; background: #06101d; border-radius: 6px; }
-.transport { display: flex; gap: 10px; align-items: center; margin: 16px 0; flex-wrap: wrap; }
-button { font: inherit; color: var(--cream); background: var(--navy-mid);
-  border: 0; border-radius: 999px; padding: 10px 18px; cursor: pointer; min-height: 44px; }
-button:disabled { opacity: .4; cursor: default; }
-button.play { background: var(--gold); color: var(--navy); font-weight: 600; min-width: 96px; }
-.bank { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 14px; }
-.bank label { display: grid; gap: 4px; font-size: 13px; letter-spacing: .04em;
-  text-transform: uppercase; opacity: .85; }
-.bank input { width: 100%; }
-.bank output { text-transform: none; font-size: 15px; letter-spacing: 0; opacity: 1; }
-.switches { display: flex; gap: 20px; flex-wrap: wrap; margin: 18px 0; }
-.switches label { display: flex; gap: 8px; align-items: center; text-transform: none; }
-#msg { min-height: 1.5em; color: var(--gold); }
-footer { opacity: .6; font-size: 13px; margin-top: 24px; }
+
+html, body { height: 100%; }
+
+body {
+  margin: 0; overflow: hidden;
+  background:
+    url('./noise-texture.png') repeat,
+    radial-gradient(120% 90% at 50% 0%, #142443 0%, var(--navy-deep) 70%);
+  background-size: 200px 200px, 100% 100%;
+  background-blend-mode: soft-light, normal;
+  background-color: var(--navy-deep);   /* the image alone leaves this transparent */
+  color: var(--cream);
+  font: 15px/1.55 "Segoe UI", system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* THE INSTRUMENT IS ALWAYS WHOLE.
+ *
+ * Ted's first words about the members player were "doesn't all show on the same
+ * screen", and shaving pixels off this layout only holds until somebody opens
+ * it on a smaller screen — a 1920x1080 laptop at 150% scaling is 720 pixels
+ * tall, not 760. So the case itself is pinned and never scrolls, and the bench
+ * underneath takes whatever room is left and scrolls on its own if it needs to.
+ * The transport, the wave and the knobs are reachable at any window size. */
+#tp {
+  max-width: 1080px;
+  height: 100vh;
+  margin: 0 auto;
+  padding: 16px 20px 10px;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  gap: 12px;
+}
+
+.deskwrap { min-height: 0; overflow-y: auto; overflow-x: hidden; padding-right: 2px; }
+.deskwrap::-webkit-scrollbar { width: 9px; }
+.deskwrap::-webkit-scrollbar-track { background: transparent; }
+.deskwrap::-webkit-scrollbar-thumb {
+  background: rgba(212, 168, 75, 0.28); border-radius: 999px;
+}
+.deskwrap::-webkit-scrollbar-thumb:hover { background: rgba(212, 168, 75, 0.45); }
+
+.vh {
+  position: absolute; width: 1px; height: 1px; overflow: hidden;
+  clip: rect(0 0 0 0); white-space: nowrap;
+}
+
+/* ---- THE CHASSIS -------------------------------------------------------- */
+
+.rack {
+  display: grid; gap: 10px;
+  padding: 13px 16px 14px;
+  border-radius: 16px;
+  background:
+    url('./noise-texture.png') repeat,
+    linear-gradient(180deg, #1c3054 0%, #142443 42%, #0b1830 100%);
+  background-size: 200px 200px, 100% 100%;
+  background-blend-mode: soft-light, normal;
+  border: 1px solid rgba(212, 168, 75, 0.3);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.16),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.5),
+    0 22px 48px rgba(0, 0, 0, 0.5);
+}
+
+/* ---- the lit readout ---------------------------------------------------- */
+
+.face { display: flex; align-items: stretch; gap: 14px; }
+
+.readout {
+  flex: 1 1 auto; min-width: 0;
+  border-radius: 10px; padding: 9px 15px;
+  background:
+    repeating-linear-gradient(0deg, rgba(255,255,255,0.035) 0 1px, transparent 1px 3px),
+    radial-gradient(120% 160% at 12% 0%, #16304a 0%, #061020 70%);
+  border: 1px solid rgba(0, 0, 0, 0.6);
+  box-shadow: inset 0 2px 12px rgba(0, 0, 0, 0.78), 0 0 0 1px rgba(212, 168, 75, 0.14);
+}
+
+.r-top { display: flex; align-items: center; gap: 10px; min-width: 0; }
+
+.dname {
+  flex: 1 1 auto; min-width: 0;
+  font-family: Consolas, ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: 0.86rem; letter-spacing: 0.07em; font-weight: 600;
+  color: var(--lit); text-shadow: 0 0 9px rgba(255, 196, 84, 0.55);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+
+.lamps { display: flex; gap: 6px; flex: 0 0 auto; }
+.lamp {
+  width: 8px; height: 8px; border-radius: 999px;
+  background: rgba(255, 216, 138, 0.16);
+  box-shadow: inset 0 0 3px rgba(0, 0, 0, 0.8);
+}
+.lamp.lit { background: #7ff0a8; box-shadow: 0 0 9px rgba(127, 240, 168, 0.9); }
+
+.r-clock {
+  display: flex; align-items: baseline; gap: 8px; margin-top: 2px;
+  font-family: Consolas, ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: 2.15rem; font-weight: 600; line-height: 1.02;
+  color: var(--lit); text-shadow: 0 0 16px rgba(255, 190, 70, 0.5);
+  font-variant-numeric: tabular-nums;
+}
+.r-clock .sep, .r-clock #t-total { font-size: 1.05rem; opacity: 0.55; }
+
+/* The status line lives inside the lit panel, where a person is already
+   looking, rather than on a separate line along the bottom of the window. */
+.r-sub {
+  font-family: Consolas, ui-monospace, monospace;
+  font-size: 0.74rem; letter-spacing: 0.04em; line-height: 1.35;
+  color: var(--lit); opacity: 0.6; margin-top: 2px; min-height: 1.35em;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+
+.face-side { display: flex; align-items: center; }
+
+.pill {
+  display: inline-flex; align-items: center; gap: 9px;
+  padding: 0.6rem 1.15rem; border-radius: 999px;
+  border: 0; cursor: pointer; font: inherit; font-size: 0.9rem; font-weight: 600;
+  background: linear-gradient(180deg, var(--gold-hover), var(--gold));
+  color: var(--navy-deep); min-height: 46px; white-space: nowrap;
+  box-shadow: 0 3px 12px rgba(0, 0, 0, 0.45), inset 0 1px 0 rgba(255, 255, 255, 0.4);
+}
+.pill:hover { filter: brightness(1.07); }
+.pill .ic {
+  display: grid; place-items: center; width: 22px; height: 22px;
+  border-radius: 999px; background: rgba(255, 255, 255, 0.9);
+}
+.pill .ic svg { width: 13px; height: 13px; fill: var(--navy-deep); }
+
+/* ---- the wave, sunk into the case --------------------------------------- */
+
+.well {
+  border-radius: 10px; padding: 3px;
+  background: linear-gradient(180deg, rgba(0,0,0,0.55), rgba(0,0,0,0.3));
+  box-shadow: inset 0 2px 10px rgba(0, 0, 0, 0.7);
+  border: 1px solid rgba(0, 0, 0, 0.5);
+}
+#wave {
+  display: block; width: 100%; height: 104px; border-radius: 8px 8px 0 0;
+  background: #050c18; touch-action: none; cursor: pointer;
+}
+.ruler {
+  display: flex; justify-content: space-between;
+  padding: 3px 6px 4px; border-radius: 0 0 8px 8px;
+  background: #050c18;
+  font-family: Consolas, ui-monospace, monospace;
+  font-size: 0.66rem; color: var(--cream); opacity: 0.4;
+}
+.wavehint {
+  margin: 0; flex: 0 1 auto; text-align: center;
+  font-size: 0.76rem; line-height: 1.45; color: var(--cream); opacity: 0.5;
+}
+@media (max-width: 980px) { .wavehint { display: none; } }
+
+/* ---- transport and the knob bank ---------------------------------------- */
+
+.bench {
+  display: flex; flex-wrap: wrap; align-items: center;
+  justify-content: space-between; gap: 10px 24px;
+}
+.transport { display: flex; align-items: center; gap: 8px; }
+
+.tbtn {
+  display: grid; place-items: center; width: 44px; height: 44px;
+  border-radius: 999px; cursor: pointer; padding: 0;
+  background: linear-gradient(180deg, rgba(255,255,255,0.12), rgba(255,255,255,0.03));
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.18), 0 2px 6px rgba(0,0,0,0.4);
+}
+.tbtn svg { width: 19px; height: 19px; fill: var(--cream); opacity: 0.9; }
+.tbtn:hover:not(:disabled) { filter: brightness(1.3); }
+.tbtn:active:not(:disabled) { box-shadow: inset 0 2px 7px rgba(0,0,0,0.6); }
+.tbtn:disabled { opacity: 0.32; cursor: default; }
+
+/* Only play is lit — the one rule that survived every Vocal Fit round. */
+.tbtn.main {
+  width: 56px; height: 56px;
+  background: linear-gradient(180deg, var(--gold-hover), #b98f33);
+  border-color: rgba(255, 226, 160, 0.65);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.5),
+              0 0 22px rgba(212, 168, 75, 0.42), 0 3px 9px rgba(0,0,0,0.5);
+}
+.tbtn.main svg { width: 23px; height: 23px; fill: #17233c; opacity: 1; }
+
+/* Both icons live in the play button and one is switched off. Measured in the
+   real window, the hidden attribute did NOT take on these SVGs — both computed
+   to display:block, so the button showed pause bars while its label said Play.
+   A class the stylesheet owns cannot be overridden by anything else here. */
+.tbtn .ico.off { display: none; }
+
+.bank { display: flex; gap: 18px; flex-wrap: wrap; }
+.knob {
+  position: relative; width: 86px;
+  display: flex; flex-direction: column; align-items: center; gap: 2px;
+  touch-action: none;
+}
+.dial { width: 58px; height: 58px; display: block; overflow: visible; cursor: ns-resize; }
+.k-track {
+  fill: none; stroke: rgba(255,255,255,0.1); stroke-width: 5; stroke-linecap: round;
+  stroke-dasharray: 122.5 1000; transform: rotate(135deg); transform-origin: 32px 32px;
+}
+.k-fill {
+  fill: none; stroke: var(--gold); stroke-width: 5; stroke-linecap: round;
+  stroke-dasharray: 0 1000; transform: rotate(135deg); transform-origin: 32px 32px;
+  filter: drop-shadow(0 0 4px rgba(212, 168, 75, 0.6));
+}
+.k-cap { fill: #23334f; stroke: rgba(0,0,0,0.55); stroke-width: 1; }
+.k-ptr {
+  stroke: var(--cream); stroke-width: 2.5; stroke-linecap: round;
+  transform-origin: 32px 32px; transform: rotate(-135deg);
+}
+/* The real control, sized over its dial. Invisible but focusable, so arrow keys
+   and screen readers work and the input stays the source of truth. */
+.knob input[type='range'] {
+  position: absolute; top: 0; left: 14px; width: 58px; height: 58px;
+  opacity: 0; margin: 0; pointer-events: none;
+}
+.knob:focus-within .k-cap { stroke: var(--gold); stroke-width: 2; }
+.k-name {
+  font-size: 0.68rem; letter-spacing: 0.14em; text-transform: uppercase;
+  font-weight: 700; color: var(--gold); opacity: 0.88;
+}
+.k-val {
+  font-family: Consolas, ui-monospace, monospace;
+  font-size: 0.7rem; color: var(--cream); opacity: 0.75;
+  text-align: center; line-height: 1.25; max-width: 86px; min-height: 1.3em;
+}
+
+/* ---- the switch strip --------------------------------------------------- */
+
+.strip {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 6px 11px;
+  padding-top: 9px; border-top: 1px solid rgba(255, 255, 255, 0.07);
+}
+.striplab, .plab {
+  font-size: 0.67rem; letter-spacing: 0.14em; text-transform: uppercase;
+  font-weight: 700; color: var(--gold); opacity: 0.8;
+  margin: 0 2px 0 0; white-space: nowrap;
+}
+.strip-gap { flex: 1 1 12px; }
+
+.chip {
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: linear-gradient(180deg, rgba(255,255,255,0.09), rgba(255,255,255,0.02));
+  color: var(--cream); font: inherit; font-size: 0.79rem; font-weight: 600;
+  padding: 0.4rem 0.85rem; border-radius: 999px; cursor: pointer;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.12); white-space: nowrap;
+}
+.chip:hover:not(:disabled) { filter: brightness(1.35); }
+.chip.on, .chip[aria-pressed='true'], .chip.strong {
+  background: linear-gradient(180deg, var(--gold-hover), var(--gold));
+  color: var(--navy-deep); border-color: rgba(255, 226, 160, 0.6);
+}
+.chip:disabled { opacity: 0.35; cursor: default; }
+
+.sw {
+  display: inline-flex; align-items: center; gap: 7px;
+  font-size: 0.82rem; color: var(--cream); opacity: 0.9; cursor: pointer;
+}
+.sw input { width: 16px; height: 16px; accent-color: var(--gold); }
+
+/* ---- the bench below the case ------------------------------------------- */
+
+.desk { display: grid; grid-template-columns: 1.3fr 1fr; gap: 12px; }
+@media (max-width: 900px) { .desk { grid-template-columns: 1fr; } }
+
+.panel {
+  padding: 11px 14px 12px; border-radius: 12px;
+  background: linear-gradient(180deg, rgba(26, 45, 77, 0.55), rgba(10, 22, 40, 0.5));
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
+}
+.panel .plab { margin-bottom: 10px; }
+
+/* One row per end of the loop. Laid out in a single flow, the label "Start"
+   ended up beside the button "Mark the end", so nothing named the control next
+   to it. A grid keeps each button, its box and its nudges on their own line and
+   lines the three columns up. */
+.loopgrid {
+  display: grid; grid-template-columns: auto auto auto;
+  gap: 7px 9px; justify-content: start; align-items: center;
+}
+.looprow {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 9px;
+}
+
+.tbox {
+  font-family: Consolas, ui-monospace, monospace; font-size: 0.86rem;
+  width: 5.4rem; padding: 0.3rem 0.6rem; border-radius: 7px;
+  border: 1px solid rgba(0, 0, 0, 0.5);
+  background: #050c18; color: var(--lit);
+  box-shadow: inset 0 1px 5px rgba(0, 0, 0, 0.7);
+  text-align: center; letter-spacing: 0.04em;
+}
+.tbox:focus { outline: 2px solid var(--gold); outline-offset: 1px; }
+
+.nudge { display: inline-flex; gap: 3px; }
+.tiny {
+  width: 26px; height: 26px; border-radius: 6px; cursor: pointer; padding: 0;
+  font: inherit; font-size: 0.95rem; line-height: 1;
+  color: var(--cream);
+  background: linear-gradient(180deg, rgba(255,255,255,0.1), rgba(255,255,255,0.02));
+  border: 1px solid rgba(255, 255, 255, 0.12);
+}
+.tiny:hover { filter: brightness(1.4); }
+
+.namerow { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 9px; }
+.namerow input[type='text'] {
+  font: inherit; font-size: 0.86rem; flex: 1 1 10rem; min-height: 36px;
+  padding: 0.3rem 0.85rem; border-radius: 999px;
+  border: 1px solid rgba(0, 0, 0, 0.5);
+  background: rgba(0, 0, 0, 0.35); color: var(--cream);
+  box-shadow: inset 0 1px 4px rgba(0, 0, 0, 0.6);
+}
+
+.item {
+  display: flex; align-items: center; gap: 10px;
+  padding: 7px 0; border-top: 1px solid rgba(255, 255, 255, 0.07);
+  font-size: 0.85rem;
+}
+.item:first-child { border-top: 0; }
+/* The name and its times share a column that can shrink; the two buttons never
+   wrap under it. Left to flex freely, a long part name pushed Remove onto a
+   third line and made every row 91px tall. */
+.itext { flex: 1 1 auto; min-width: 0; display: grid; gap: 1px; }
+.item .name {
+  font-weight: 600; color: var(--white);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.item .when {
+  font-family: Consolas, ui-monospace, monospace; font-size: 0.72rem;
+  color: var(--lit); opacity: 0.7;
+}
+.iacts { flex: 0 0 auto; display: flex; gap: 6px; }
+.iacts .chip { font-size: 0.74rem; padding: 0.3rem 0.7rem; }
+
+.empty { margin: 0; font-size: 0.82rem; color: var(--cream); opacity: 0.55; }
+
+/* ---- the line along the bottom ------------------------------------------ */
+
+.foot { padding: 0 2px; }
+.foot p { margin: 0; }
+#where { color: var(--cream); opacity: 0.45; font-size: 0.74rem; }
+
+@media (prefers-reduced-motion: reduce) {
+  .tbtn, .chip, .pill { transition: none; }
+}

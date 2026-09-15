@@ -1,8 +1,14 @@
 # What only a real Windows machine can prove
 
-The automatic checks run on every change and cover the maths, the audio graph
-and the app being launched and driven. They cannot cover the registry, a real
-microphone, or a real sound card. Work through this list once per release.
+The automatic checks run on every change. On a Windows runner they now build
+the installer, RUN it, and drive the app as installed: the page served out of
+the package, an MP3 named on the command line opening and playing, the library,
+the speed and key engine, a recording that comes back at the pitch that went in,
+the tuner, all four media keys, and asking Windows for the computer's own sound.
+
+What they still cannot cover is the registry as a person changes it, a real
+microphone, a real sound card, and anything that takes longer than a build.
+Work through this list once per release.
 
 ## The installer
 
@@ -30,7 +36,7 @@ microphone, or a real sound card. Work through this list once per release.
 9. Play a stereo recording and confirm the balance control turns down the side
    it names, not the side it points at.
 
-## Microphone — once recording is built
+## Microphone
 
 10. Open a real microphone and confirm `track.getSettings()` really reports
     `autoGainControl: false`. Browsers and interface drivers both quietly ignore

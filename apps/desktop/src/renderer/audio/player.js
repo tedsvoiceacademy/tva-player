@@ -1,0 +1,213 @@
+/* Playing a song, the two different ways it has to be played.
+ *
+ * STRAIGHT PLAYBACK is the default and is what a media player needs: an <audio>
+ * element streaming from disk. It starts in a fraction of a second whatever the
+ * length, uses the same memory for a three-minute song and a ninety-minute
+ * rehearsal recording, and gives correct seeking and duration for free.
+ *
+ * PRACTICE MODE is what the members player does: the whole file decoded into
+ * memory and handed to the stretch engine, which is the only way to change the
+ * speed without changing the key. It costs a decode before the first note — an
+ * hour of stereo at 48 kHz is about 1.4 GB decoded — so it happens when a
+ * practice control is touched, not when a song is opened.
+ *
+ * Both feed the same tail, so the balance and lead-quieter maths is shared and
+ * cannot fork between them.
+ */
+import { getSharedAudioContext, resumeSharedAudio } from './context.js';
+import { buildGraph, routeTail, setSource, applyBalance } from './graph.js';
+
+/* Above this, practice mode is refused rather than attempted. The refusal says
+   so in words; silently killing the app on a long file would be worse. */
+export const PRACTICE_MAX_SECONDS = 25 * 60;
+
+export class Player {
+  constructor() {
+    this.ctx = getSharedAudioContext();
+    this.graph = buildGraph(this.ctx);
+    this.mode = 'idle';          // 'straight' | 'practice'
+    this.song = null;            // { path, name, bytes, songKey, url }
+    this.el = null;              // the <audio> element, straight playback
+    this.elSource = null;
+    this.stretch = null;         // the stretch node, practice mode
+    this.buffer = null;          // the decoded song, practice mode
+    this.practiceTime = 0;
+    this.onTime = () => {};
+    this.onState = () => {};
+  }
+
+  /* ---- Opening ---------------------------------------------------------- */
+
+  async open(song) {
+    this.stopAll();
+    this.song = song;
+    this.mode = 'straight';
+
+    const el = new Audio();
+    el.src = song.url;
+    el.preload = 'auto';
+    this.el = el;
+
+    /* Wait for the song's length BEFORE wiring the element into the graph.
+       An element connected to a suspended AudioContext stalls: its metadata
+       never completes, duration stays at Infinity, and the clock and the
+       waveform have nothing to scale against. The song still plays once the
+       context resumes, which is what makes this one easy to miss. */
+    await new Promise((resolve, reject) => {
+      el.addEventListener('loadedmetadata', resolve, { once: true });
+      el.addEventListener('error', () => reject(new Error('That file would not open')), { once: true });
+    });
+
+    // Some files report their length a moment later than their metadata.
+    if (!Number.isFinite(el.duration)) {
+      await new Promise((resolve) => {
+        const timer = setTimeout(resolve, 2000);
+        el.addEventListener('durationchange', () => {
+          if (Number.isFinite(el.duration)) { clearTimeout(timer); resolve(); }
+        });
+      });
+    }
+
+    // createMediaElementSource may only ever be called once per element, which
+    // is why a fresh element is made per song rather than the src being swapped.
+    this.elSource = this.ctx.createMediaElementSource(el);
+    setSource(this.graph, this.elSource);
+
+    el.addEventListener('timeupdate', () => this.onTime(this.currentTime, this.duration));
+    el.addEventListener('durationchange', () => this.onTime(this.currentTime, this.duration));
+    el.addEventListener('ended', () => this.onState('ended'));
+    el.addEventListener('play', () => this.onState('playing'));
+    el.addEventListener('pause', () => this.onState('paused'));
+
+    this.onState('ready');
+    return { duration: this.duration };
+  }
+
+  /* ---- Straight playback ------------------------------------------------ */
+
+  async play() {
+    await resumeSharedAudio();
+    if (this.mode === 'practice') {
+      this.stretch.schedule({ active: true });
+      this.onState('playing');
+      return;
+    }
+    await this.el.play();
+  }
+
+  pause() {
+    if (this.mode === 'practice') {
+      this.stretch.schedule({ active: false });
+      this.onState('paused');
+      return;
+    }
+    this.el.pause();
+  }
+
+  stop() {
+    this.pause();
+    this.seek(0);
+  }
+
+  seek(seconds) {
+    const target = Math.max(0, Math.min(seconds, this.duration || 0));
+    if (this.mode === 'practice') {
+      this.practiceTime = target;
+      this.stretch.schedule({ input: target });
+    } else if (this.el) {
+      this.el.currentTime = target;
+    }
+    this.onTime(target, this.duration);
+  }
+
+  get currentTime() {
+    return this.mode === 'practice' ? this.practiceTime : (this.el ? this.el.currentTime : 0);
+  }
+
+  get duration() {
+    if (this.mode === 'practice' && this.buffer) return this.buffer.duration;
+    return this.el && Number.isFinite(this.el.duration) ? this.el.duration : 0;
+  }
+
+  get playing() {
+    return this.mode === 'practice'
+      ? this._practicePlaying === true
+      : Boolean(this.el && !this.el.paused);
+  }
+
+  /* ---- Practice mode ---------------------------------------------------- */
+
+  /** Decode the song and hand it to the stretch engine, keeping the position.
+   *  Returns null when the song is too long to hold in memory. */
+  async enterPracticeMode(fetchBytes) {
+    if (this.mode === 'practice') return this.stretch;
+    if (this.duration > PRACTICE_MAX_SECONDS) return null;
+
+    const at = this.currentTime;
+    const wasPlaying = this.playing;
+    if (this.el) this.el.pause();
+
+    const bytes = await fetchBytes(this.song.url);
+    this.buffer = await this.ctx.decodeAudioData(bytes);
+
+    const mod = await import('../vendor/SignalsmithStretch.mjs');
+    const node = await mod.default(this.ctx, { numberOfInputs: 0, outputChannelCount: [2] });
+
+    const chans = [];
+    for (let c = 0; c < this.buffer.numberOfChannels; c++) chans.push(this.buffer.getChannelData(c));
+    // A mono recording is duplicated so the tail always has two sides to work
+    // with, and the balance control still means something.
+    if (chans.length === 1) chans.push(chans[0]);
+    await node.addBuffers(chans);
+
+    this.stretch = node;
+    this.mode = 'practice';
+    this._practicePlaying = wasPlaying;
+    setSource(this.graph, node);
+
+    node.setUpdateInterval(0.05, (t) => {
+      this.practiceTime = t;
+      this.onTime(t, this.duration);
+    });
+    node.schedule({ active: wasPlaying, input: at });
+    this.practiceTime = at;
+    return node;
+  }
+
+  /** Speed, key and formants — the three the stretch engine owns. */
+  applyPractice({ speed, halfSteps, naturalVoice }) {
+    if (this.mode !== 'practice' || !this.stretch) return;
+    this.stretch.schedule({
+      rate: speed,
+      semitones: halfSteps,
+      formantCompensation: naturalVoice,
+      formantBaseHz: 0,           // work the fundamental out rather than assume one
+    });
+  }
+
+  setLoop(a, b) {
+    if (this.mode !== 'practice' || !this.stretch) return;
+    // Both the same means no loop, which is what the engine's own API asks for.
+    this.stretch.schedule({ loopStart: a ?? 0, loopEnd: b ?? 0 });
+  }
+
+  /* ---- The controls that work in either mode ---------------------------- */
+
+  setBalance(balance) { applyBalance(this.graph, balance); }
+  setVolume(volume)   { this.graph.master.gain.value = volume; }
+  setTail(opts)       { routeTail(this.graph, opts); }
+
+  async setOutputDevice(deviceId) {
+    if (typeof this.ctx.setSinkId !== 'function') return false;
+    try { await this.ctx.setSinkId(deviceId); return true; } catch { return false; }
+  }
+
+  stopAll() {
+    if (this.el) { this.el.pause(); this.el.removeAttribute('src'); this.el.load(); }
+    if (this.stretch) { try { this.stretch.schedule({ active: false }); this.stretch.disconnect(); } catch {} }
+    // The context itself is NOT closed — see context.js.
+    setSource(this.graph, null);
+    this.el = null; this.elSource = null; this.stretch = null; this.buffer = null;
+    this.mode = 'idle'; this.practiceTime = 0;
+  }
+}

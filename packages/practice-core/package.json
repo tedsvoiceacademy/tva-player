@@ -1,0 +1,9 @@
+{
+  "name": "@tva/practice-core",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "The pure maths and data model behind the player. Imports nothing.",
+  "main": "src/index.ts",
+  "scripts": { "test": "vitest run" }
+}

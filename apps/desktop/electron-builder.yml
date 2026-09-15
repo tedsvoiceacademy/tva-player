@@ -1,0 +1,53 @@
+appId: com.tedsvoiceacademy.player
+productName: TVA Player
+copyright: Ted's Voice Academy
+
+directories:
+  output: ../../release
+  buildResources: build
+
+files:
+  - dist/**/*
+  - package.json
+  - "!**/*.map"
+
+# Double-clicking any of these in File Explorer opens the app. Registering them
+# is what puts TVA Player into the "Open with" menu and into Windows Settings ->
+# Default apps. It does NOT make the app the default: Windows reserves that for
+# the person, confirmed by hand. See src/main/default-apps.cjs.
+fileAssociations:
+  - { ext: mp3,  name: MP3 audio,   description: Audio file, role: Viewer }
+  - { ext: m4a,  name: M4A audio,   description: Audio file, role: Viewer }
+  - { ext: wav,  name: WAV audio,   description: Audio file, role: Viewer }
+  - { ext: flac, name: FLAC audio,  description: Audio file, role: Viewer }
+  - { ext: aac,  name: AAC audio,   description: Audio file, role: Viewer }
+  - { ext: ogg,  name: OGG audio,   description: Audio file, role: Viewer }
+  - { ext: oga,  name: OGA audio,   description: Audio file, role: Viewer }
+  - { ext: opus, name: Opus audio,  description: Audio file, role: Viewer }
+  - { ext: wma,  name: WMA audio,   description: Audio file, role: Viewer }
+  - { ext: aiff, name: AIFF audio,  description: Audio file, role: Viewer }
+  - { ext: aif,  name: AIF audio,   description: Audio file, role: Viewer }
+
+win:
+  target: [nsis]
+  # No certificate. Windows shows one SmartScreen warning on the first install
+  # per machine; docs/TED-README.md has a picture of it and the two clicks.
+  # The escalation, if it ever becomes worth it, is Azure Trusted Signing.
+  signAndEditExecutable: false
+
+nsis:
+  oneClick: true
+  # Installing per user rather than per machine does two things that matter:
+  # no UAC prompt on an unsigned installer, and updates that install themselves
+  # without asking for an administrator.
+  perMachine: false
+  allowToChangeInstallationDirectory: false
+  createStartMenuShortcut: true
+  createDesktopShortcut: true
+  shortcutName: TVA Player
+  deleteAppDataOnUninstall: false
+
+publish:
+  provider: github
+  owner: tedsvoiceacademy
+  repo: tva-player

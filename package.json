@@ -1,0 +1,31 @@
+{
+  "name": "tva-player",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Ted's Voice Academy audio player and practice recorder for Windows",
+  "workspaces": [
+    "packages/*",
+    "apps/desktop"
+  ],
+  "scripts": {
+    "dev": "npm run dev -w @tva/desktop",
+    "typecheck": "tsc -p packages/practice-core --noEmit",
+    "test": "npm run test:core && npm run test:harness",
+    "test:core": "vitest run --root packages/practice-core",
+    "test:harness": "node scripts/player-harness.mjs",
+    "test:harness:control": "node scripts/player-harness.mjs --negative-control",
+    "test:no-native": "node scripts/no-native-modules.mjs",
+    "build": "npm run build -w @tva/desktop",
+    "release": "npm run release -w @tva/desktop"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.63.0",
+    "esbuild": "^0.25.0",
+    "typescript": "^5.6.0",
+    "vitest": "^2.1.0"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

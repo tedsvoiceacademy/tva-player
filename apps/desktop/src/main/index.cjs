@@ -1,0 +1,302 @@
+/* The app itself: one window, the files, the registry, the updates.
+ *
+ * NO AUDIO HAPPENS IN THIS PROCESS. Everything that makes a sound lives in the
+ * renderer, which is sandboxed and has no access to the file system. Songs reach
+ * it either as an app://player/song/ URL it can stream, or as bytes it asked for.
+ */
+const { app, BrowserWindow, dialog, ipcMain, protocol, session, shell } = require('electron');
+const path = require('node:path');
+const fs = require('node:fs');
+const fsp = require('node:fs/promises');
+const { pathToFileURL, fileURLToPath } = require('node:url');
+
+const core = require('../../dist/main/practice-core.cjs');
+const { Store, defaultRoot, detectOneDrive } = require('./store.cjs');
+const { openDefaultAppsSettings, readUserChoices } = require('./default-apps.cjs');
+const { registerShortcuts, KEYS } = require('./shortcuts.cjs');
+
+const RENDERER_DIR = path.join(__dirname, '..', 'renderer');
+
+let win = null;
+let store = null;
+const burst = new core.BurstCollector(250);
+let burstTimer = null;
+
+/* Chromium will not start audio without a click unless told otherwise. In a
+   browser that rule protects people from noisy pages; in a media player the
+   person double-clicked a song, which IS the gesture. */
+app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required');
+
+/* Only songs the person has actually opened are servable. The renderer cannot
+   name a path and have it read: this set is the whole of what it may reach. */
+const allowedPaths = new Set();
+
+/* The page is served from app:// rather than opened from disk. A file:// page
+   has no real origin, so "default-src 'self'" means nothing there and module
+   loading is refused without saying why. Its own scheme gives it an origin the
+   policy can actually be written against.
+ *
+ * SONGS ARE SERVED FROM THAT SAME ORIGIN, under /song/, rather than from a
+ * scheme of their own. A separate scheme reads better but is fatal here: a
+ * cross-origin media element is tainted, and createMediaElementSource on a
+ * tainted element feeds SILENCE into the graph rather than failing. The song
+ * would appear to play, with the clock running and nothing audible. Custom
+ * schemes cannot be granted CORS, so same-origin is the only honest fix. */
+protocol.registerSchemesAsPrivileged([
+  { scheme: 'app', privileges: { standard: true, secure: true, stream: true, supportFetchAPI: true } },
+]);
+
+function encodePathForUrl(filePath) {
+  return `app://player/song/${encodeURIComponent(filePath)}`;
+}
+
+async function createWindow() {
+  win = new BrowserWindow({
+    width: 1180,
+    height: 760,
+    minWidth: 900,
+    minHeight: 560,
+    backgroundColor: '#0a1628',
+    show: false,
+    title: 'TVA Player',
+    webPreferences: {
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true,
+      preload: path.join(__dirname, '..', 'preload', 'index.cjs'),
+    },
+  });
+  win.once('ready-to-show', () => win.show());
+  await win.loadURL('app://player/index.html');
+}
+
+/* The renderer runs under a strict policy. 'wasm-unsafe-eval' and blob: are both
+   required by the stretch engine, which compiles its WASM from bytes it carries
+   and registers its worklet from a blob — proven working under exactly this
+   policy before any of the rest of this was built. */
+function applyContentSecurityPolicy() {
+  session.defaultSession.webRequest.onHeadersReceived((details, done) => {
+    done({
+      responseHeaders: {
+        ...details.responseHeaders,
+        'Content-Security-Policy': [
+          [
+            "default-src 'self'",
+            "script-src 'self' 'wasm-unsafe-eval' blob:",
+            "worker-src 'self' blob:",
+            "media-src 'self' blob:",
+            "img-src 'self' data: blob:",
+            "style-src 'self' 'unsafe-inline'",
+            "connect-src 'self' blob: data:",
+          ].join('; '),
+        ],
+      },
+    });
+  });
+}
+
+/* Serve one file, with the two headers that make a media element behave.
+ *
+ * net.fetch on a file:// URL returns the bytes but no Content-Length, and a
+ * media element streaming a source of unknown length reports its duration as
+ * Infinity — so the clock sits at 0:00 and the waveform has nothing to scale
+ * itself against, while the song plays perfectly well. Accept-Ranges and the
+ * Range handling are what let a 45-minute recording be seeked without reading
+ * the whole thing first.
+ */
+async function serveFile(filePath, rangeHeader, contentType) {
+  let stat;
+  try { stat = await fsp.stat(filePath); } catch { return new Response('Not found', { status: 404 }); }
+  if (!stat.isFile()) return new Response('Not found', { status: 404 });
+
+  const total = stat.size;
+  const headers = {
+    'Content-Type': contentType,
+    'Accept-Ranges': 'bytes',
+    'Cache-Control': 'no-store',
+  };
+
+  const match = rangeHeader ? /^bytes=(\d*)-(\d*)$/.exec(rangeHeader.trim()) : null;
+  if (match) {
+    const start = match[1] ? Number(match[1]) : 0;
+    const end = match[2] ? Math.min(Number(match[2]), total - 1) : total - 1;
+    if (start >= total || start > end) {
+      return new Response(null, { status: 416, headers: { 'Content-Range': `bytes */${total}` } });
+    }
+    const stream = fs.createReadStream(filePath, { start, end });
+    return new Response(streamToWeb(stream), {
+      status: 206,
+      headers: { ...headers,
+        'Content-Length': String(end - start + 1),
+        'Content-Range': `bytes ${start}-${end}/${total}` },
+    });
+  }
+
+  return new Response(streamToWeb(fs.createReadStream(filePath)), {
+    status: 200,
+    headers: { ...headers, 'Content-Length': String(total) },
+  });
+}
+
+function streamToWeb(nodeStream) {
+  const { Readable } = require('node:stream');
+  return Readable.toWeb(nodeStream);
+}
+
+const MIME_BY_EXT = {
+  '.html': 'text/html', '.js': 'text/javascript', '.mjs': 'text/javascript',
+  '.css': 'text/css', '.json': 'application/json', '.wasm': 'application/wasm',
+  '.png': 'image/png', '.webp': 'image/webp', '.svg': 'image/svg+xml',
+  '.mp3': 'audio/mpeg', '.m4a': 'audio/mp4', '.wav': 'audio/wav', '.flac': 'audio/flac',
+  '.aac': 'audio/aac', '.ogg': 'audio/ogg', '.oga': 'audio/ogg', '.opus': 'audio/ogg',
+  '.wma': 'audio/x-ms-wma', '.aiff': 'audio/aiff', '.aif': 'audio/aiff',
+};
+
+function handleAppProtocol() {
+  protocol.handle('app', async (request) => {
+    const url = new URL(request.url);
+    const rel = decodeURIComponent(url.pathname).replace(/^\/+/, '');
+    const range = request.headers.get('Range');
+
+    /* A song the person has actually opened. Only those: the renderer cannot
+       name an arbitrary file and have it served. */
+    if (rel.startsWith('song/')) {
+      const target = decodeURIComponent(rel.slice('song/'.length));
+      if (!allowedPaths.has(target)) return new Response('Not opened by this app', { status: 403 });
+      const type = MIME_BY_EXT[path.extname(target).toLowerCase()] ?? 'application/octet-stream';
+      return serveFile(target, range, type);
+    }
+
+    // Otherwise it is the page itself, and nothing outside the renderer folder
+    // is servable however it is asked for.
+    const target = path.normalize(path.join(RENDERER_DIR, rel));
+    if (!target.startsWith(RENDERER_DIR)) return new Response('No', { status: 403 });
+    const type = MIME_BY_EXT[path.extname(target).toLowerCase()] ?? 'application/octet-stream';
+    return serveFile(target, range, type);
+  });
+}
+
+/* Opening songs. Arrivals are gathered rather than handled one at a time,
+   because selecting six files in Explorer launches six copies of the app in
+   quick succession and each would otherwise replace the last. */
+function queueOpen(paths) {
+  if (paths.length === 0) return;
+  const at = Date.now();
+  const readyAt = burst.add(paths, at);
+  if (burstTimer) clearTimeout(burstTimer);
+  burstTimer = setTimeout(() => {
+    const gathered = burst.flush(Date.now());
+    if (gathered && gathered.length) deliverOpen(gathered);
+  }, Math.max(10, readyAt - at + 20));
+}
+
+async function deliverOpen(paths) {
+  const songs = [];
+  for (const p of paths) {
+    try {
+      const stat = await fsp.stat(p);
+      if (!stat.isFile()) continue;
+      allowedPaths.add(p);
+      app.addRecentDocument(p);
+      songs.push({
+        path: p,
+        name: path.basename(p),
+        bytes: stat.size,
+        songKey: core.songKey(path.basename(p), stat.size),
+        url: encodePathForUrl(p),
+      });
+    } catch { /* a file that vanished between the click and here */ }
+  }
+  if (songs.length && win) win.webContents.send('songs:open', songs);
+}
+
+function setJumpList() {
+  if (process.platform !== 'win32') return;
+  app.setJumpList([
+    {
+      type: 'custom',
+      name: 'Tasks',
+      items: [
+        { type: 'task', title: 'Play or pause', program: process.execPath,
+          args: '--task=playpause', description: 'Play or pause whatever is loaded' },
+        { type: 'task', title: 'Start recording', program: process.execPath,
+          args: '--task=record', description: 'Open the app and start a new recording' },
+      ],
+    },
+    { type: 'recent' },
+  ]);
+}
+
+/* ---- Wiring ------------------------------------------------------------- */
+
+if (!app.requestSingleInstanceLock()) {
+  app.quit();
+} else {
+  app.on('second-instance', (_event, argv) => {
+    queueOpen(core.filterAudioArgs(argv));
+    const task = core.taskFromArgs(argv);
+    if (task && win) win.webContents.send('task:run', task);
+    if (win) { if (win.isMinimized()) win.restore(); win.focus(); }
+  });
+
+  app.whenReady().then(async () => {
+    applyContentSecurityPolicy();
+    handleAppProtocol();
+
+    store = new Store(defaultRoot(app.getPath('userData')));
+    await store.init();
+    const conflicts = await store.sweepConflicts();
+
+    await createWindow();
+    setJumpList();
+
+    const appSettings = await store.loadAppSettings();
+    const shortcutResult = registerShortcuts(appSettings.shortcuts ?? {}, (id) => {
+      if (win) win.webContents.send('shortcut', id);
+    });
+
+    const tellRenderer = () => {
+      win.webContents.send('app:ready', {
+        settingsRoot: store.root,
+        oneDrive: detectOneDrive(),
+        machine: store.machine,
+        conflicts,
+        shortcutsTaken: shortcutResult.taken,
+        version: app.getVersion(),
+      });
+      queueOpen(core.filterAudioArgs(process.argv));
+    };
+
+    /* loadURL resolves after the page has finished loading, so waiting for
+       did-finish-load here would usually wait for an event that has already
+       happened. Send now if it has, and listen only if it has not. */
+    if (win.webContents.isLoading()) win.webContents.once('did-finish-load', tellRenderer);
+    else tellRenderer();
+  });
+
+  app.on('window-all-closed', () => app.quit());
+  app.on('will-quit', () => { try { require('electron').globalShortcut.unregisterAll(); } catch {} });
+}
+
+/* ---- What the renderer may ask for -------------------------------------- */
+
+ipcMain.handle('dialog:openSongs', async () => {
+  const result = await dialog.showOpenDialog(win, {
+    title: 'Open a song',
+    properties: ['openFile', 'multiSelections'],
+    filters: [{ name: 'Audio', extensions: [...core.AUDIO_EXTENSIONS] }],
+  });
+  if (result.canceled) return [];
+  await deliverOpen(result.filePaths);
+  return result.filePaths;
+});
+
+ipcMain.handle('song:load', (_e, songKey) => store.loadSong(String(songKey)));
+ipcMain.handle('song:save', (_e, songFile) => store.saveSong(songFile));
+ipcMain.handle('song:list', () => store.listSongs());
+ipcMain.handle('settings:load', () => store.loadAppSettings());
+ipcMain.handle('settings:save', (_e, settings) => store.saveAppSettings(settings));
+ipcMain.handle('defaults:open', () => openDefaultAppsSettings(app.getName()));
+ipcMain.handle('defaults:read', () => readUserChoices());
+ipcMain.handle('shortcuts:list', () => KEYS.map(({ id, label }) => ({ id, label })));
+ipcMain.handle('folder:reveal', (_e, target) => shell.showItemInFolder(String(target)));

@@ -1,0 +1,36 @@
+name: Build the Windows installer
+
+# Pushing a tag like v0.2.0 builds the installer and puts it on the Releases
+# page. The app checks that page for itself, so this is the whole of shipping.
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: npm }
+
+      - run: npm ci
+
+      - name: The player's maths
+        run: npm run test:harness
+
+      - name: The app, launched and driven
+        run: |
+          npm run build:code -w @tva/desktop
+          node scripts/app-harness.mjs
+
+      # electron-builder publishes the installer, latest.yml and the blockmap.
+      # latest.yml is what the installed app reads to know an update exists.
+      - name: Build and publish
+        run: npm run release -w @tva/desktop
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

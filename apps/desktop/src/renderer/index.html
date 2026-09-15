@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>TVA Player</title>
+<link rel="stylesheet" href="./ui/app.css">
+</head>
+<body>
+<main id="app">
+  <header class="face">
+    <div class="face-name" id="now-name">NO SONG OPEN</div>
+    <div class="face-clock"><span id="t-now">0:00</span> <span class="sep">/</span> <span id="t-total">0:00</span></div>
+  </header>
+
+  <canvas id="wave" height="96" aria-label="The song, drawn from start to end. Click to jump to a spot."></canvas>
+
+  <section class="transport" aria-label="Playback">
+    <button id="open" class="pill">Open a song</button>
+    <button id="back10" class="round" title="Back ten seconds">&#8630;10</button>
+    <button id="play" class="round play" disabled>Play</button>
+    <button id="fwd10" class="round" title="Forward ten seconds">10&#8631;</button>
+    <button id="stop" class="round" title="Stop and go back to the start">Stop</button>
+  </section>
+
+  <section class="bank" aria-label="Practice controls">
+    <label>Speed <input type="range" id="speed" min="50" max="120" step="1" value="100"><output id="speed-out">Normal</output></label>
+    <label>Key <input type="range" id="key" min="-6" max="6" step="1" value="0"><output id="key-out">As recorded</output></label>
+    <label>Sides <input type="range" id="balance" min="-100" max="100" step="1" value="0"><output id="balance-out">Both sides</output></label>
+    <label>Volume <input type="range" id="volume" min="0" max="100" step="1" value="100"><output id="volume-out">100%</output></label>
+  </section>
+
+  <section class="switches">
+    <label><input type="checkbox" id="natural" checked> Keep voices sounding natural</label>
+    <label><input type="checkbox" id="lead"> Make the lead quieter</label>
+    <label><input type="checkbox" id="onespk"> Same mix on both speakers</label>
+  </section>
+
+  <p id="msg" role="status"></p>
+  <footer id="where"></footer>
+</main>
+<script type="module" src="./ui/app.js"></script>
+</body>
+</html>

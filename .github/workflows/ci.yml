@@ -1,0 +1,52 @@
+name: Checks
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: npm }
+
+      - run: npm ci
+
+      # The pure maths, with no browser and no Electron.
+      - name: The player's maths
+        run: npm run test:harness
+
+      # A harness that cannot fail is not evidence. This proves it can.
+      - name: And prove those checks can fail
+        run: npm run test:harness:control
+
+      - name: Nothing native ships inside the app
+        run: npm run test:no-native
+
+      - run: npm run typecheck
+
+      - run: npm run build:code -w @tva/desktop
+
+      # The app itself, launched the way Windows launches it. Chromium needs a
+      # display even to run headless Electron, hence xvfb.
+      - name: The app, launched and driven
+        run: xvfb-run -a node scripts/app-harness.mjs
+
+      - name: And prove those checks can fail
+        run: xvfb-run -a node scripts/app-harness.mjs --negative-control
+
+  # The same end-to-end run on real Windows, which is the only place the file
+  # associations, the registry and the installer actually mean anything.
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: npm }
+      - run: npm ci
+      - run: npm run test:harness
+      - run: npm run build:code -w @tva/desktop
+      - run: node scripts/app-harness.mjs

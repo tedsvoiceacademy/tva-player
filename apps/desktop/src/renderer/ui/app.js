@@ -315,13 +315,16 @@ const PEAK_COUNT = 640;
  * sixth of the size, and the shape of a waveform drawn 640 bars wide is
  * identical either way. It runs after the song is already playing, so it never
  * delays the first note. */
-/* ONE context for every song, not one per song.
+/* ONE decode context for every song, rather than a fresh one per song.
  *
- * A browser caps how many audio contexts may exist at once, and this used to
- * make a fresh one for every song opened — so after enough songs in a sitting,
- * NEW CONTEXTS STOPPED WORKING and anything that needed one rendered silence.
- * It showed up as the speed and key engine going quiet after a long session,
- * which is close to impossible to connect back to drawing a waveform. */
+ * (An earlier comment here claimed a browser caps how many audio contexts may
+ * exist and that exceeding it was making the speed and key engine render
+ * silence. That was measured afterwards and is NOT true — thirty offline
+ * contexts were created and rendered in a row with no trouble at all. The
+ * claim is removed rather than left standing, because a wrong explanation in a
+ * comment is worse than none: it sends the next person looking in the wrong
+ * place. Reusing one context is still right, simply because making a new one
+ * per song buys nothing.) */
 let peakCtx = null;
 function getPeakContext() {
   if (!peakCtx) {

@@ -249,6 +249,26 @@ try {
     let peak = 0; for (let i = 0; i < out.length; i++) peak = Math.max(peak, Math.abs(out[i]));
     return { hz: bestLag ? SR / bestLag : 0, want: F0 * Math.pow(2, SEMIS / 12), peak };
   });
+  /* This measurement came back silent once in several runs and could not be
+     reproduced on its own — twelve renders in a row in an otherwise idle page
+     were all fine. So it stays strict, and gathers evidence when it does fail,
+     rather than being softened into something that cannot fail. */
+  if (!(stretched.peak > 0.05)) {
+    const why = await page.evaluate(async () => {
+      const out = { ctxState: null, moduleLoaded: false, error: null };
+      try {
+        const ctx = new OfflineAudioContext({ numberOfChannels: 2, length: 4410, sampleRate: 44100 });
+        out.ctxState = ctx.state;
+        const mod = await import('./vendor/SignalsmithStretch.mjs');
+        out.moduleLoaded = typeof mod.default === 'function';
+        const node = await mod.default(ctx, { numberOfInputs: 0, outputChannelCount: [2] });
+        out.nodeMade = Boolean(node);
+      } catch (e) { out.error = String(e.message ?? e); }
+      return out;
+    });
+    console.log(`    silent render — diagnosis: ${JSON.stringify(why)}`);
+  }
+
   const cents = 1200 * Math.log2(stretched.hz / stretched.want);
   check('the stretch engine runs under the app\'s security policy',
     stretched.peak > 0.05,

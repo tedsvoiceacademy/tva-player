@@ -85,29 +85,58 @@ const args = [
  * through PowerShell's Start-Process, which is what actually knows how to
  * launch one. Everywhere else spawn is fine. */
 const onWindows = process.platform === 'win32';
-const quoted = (a) => `'${String(a).replace(/'/g, "''")}'`;
 const env = { ...process.env, OneDrive: '', OneDriveConsumer: '', OneDriveCommercial: '' };
+const outLog = join(work, 'app-out.txt');
+const errLog = join(work, 'app-err.txt');
+
+/* Start-Process joins its argument list into one command line, so an argument
+   holding a space — a song called "Packaged Test.mp3" — has to carry its own
+   double quotes or the app receives it as two arguments. */
+const psArg = (a) => `'"${String(a).replace(/"/g, '\\"').replace(/'/g, "''")}"'`;
+const psPath = (a) => `'${String(a).replace(/'/g, "''")}'`;
 
 const child = onWindows
   ? spawn('powershell.exe', [
       '-NoProfile', '-NonInteractive', '-Command',
-      `Start-Process -FilePath ${quoted(exe)} -ArgumentList @(${args.map(quoted).join(',')})`,
-    ], { env, stdio: 'ignore', windowsHide: true })
+      `Start-Process -FilePath ${psPath(exe)}`
+      + ` -ArgumentList @(${args.map(psArg).join(',')})`
+      + ` -RedirectStandardOutput ${psPath(outLog)}`
+      + ` -RedirectStandardError ${psPath(errLog)}`,
+    ], { env, stdio: 'inherit', windowsHide: true })
   : spawn(exe, args, { env, stdio: 'ignore' });
 
 child.on('error', (err) => { console.error('The app would not start at all:', err); });
 
 // Wait for the port to answer, rather than guessing how long start-up takes.
 let browser = null;
-for (let tries = 0; tries < 60 && !browser; tries++) {
+for (let tries = 0; tries < 120 && !browser; tries++) {
   await new Promise((r) => setTimeout(r, 500));
   try {
     browser = await chromium.connectOverCDP(`http://127.0.0.1:${PORT}`);
   } catch { /* not up yet */ }
 }
 if (!browser) {
-  console.error(`The app did not open a debugging port within 30 seconds. `
-    + `It may have failed to start, or quit immediately.`);
+  console.error('The app did not open a debugging port within 60 seconds.');
+  /* Say WHY, rather than leaving the next person to guess. Everything the app
+     printed on its way out, and whether it is even running. */
+  const { readFile } = await import('node:fs/promises');
+  for (const [label, file] of [['stdout', outLog], ['stderr', errLog]]) {
+    const text = await readFile(file, 'utf8').catch(() => null);
+    console.error(`--- app ${label} ---\n${text?.trim() || '(nothing)'}`);
+  }
+  if (onWindows) {
+    const { execFileSync } = await import('node:child_process');
+    try {
+      const running = execFileSync('powershell.exe', ['-NoProfile', '-Command',
+        "Get-Process -Name 'TVA Player' -ErrorAction SilentlyContinue | "
+        + 'Select-Object -ExpandProperty Id'], { encoding: 'utf8' }).trim();
+      console.error(`--- is it running? --- ${running ? `yes, as ${running}` : 'no'}`);
+      const ports = execFileSync('powershell.exe', ['-NoProfile', '-Command',
+        `Get-NetTCPConnection -LocalPort ${PORT} -ErrorAction SilentlyContinue | `
+        + 'Select-Object -ExpandProperty State'], { encoding: 'utf8' }).trim();
+      console.error(`--- is the port open? --- ${ports || 'no'}`);
+    } catch (e) { console.error('--- could not ask Windows ---', e.message); }
+  }
   try { child.kill(); } catch {}
   process.exit(1);
 }

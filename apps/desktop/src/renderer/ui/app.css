@@ -535,7 +535,7 @@ body {
 }
 
 .item {
-  display: flex; align-items: center; gap: 10px;
+  display: flex; align-items: center; gap: 10px 12px; flex-wrap: wrap;
   padding: 7px 0; border-top: 1px solid rgba(255, 255, 255, 0.07);
   font-size: 0.85rem;
 }
@@ -543,7 +543,11 @@ body {
 /* The name and its times share a column that can shrink; the two buttons never
    wrap under it. Left to flex freely, a long part name pushed Remove onto a
    third line and made every row 91px tall. */
-.itext { flex: 1 1 auto; min-width: 0; display: grid; gap: 1px; }
+/* A take row carries three buttons, and with no floor under this column the
+   name was squeezed to about seventy pixels: "Shenandoah" broke in the middle
+   of the word and the date stacked three lines deep. Below the floor the
+   buttons drop to their own line instead, which is the readable way round. */
+.itext { flex: 1 1 11rem; min-width: 11rem; display: grid; gap: 1px; }
 /* A long part name wraps to a second line rather than being cut off with dots.
    "bar 40 to the e…" tells nobody which part it is. */
 .item .name {
@@ -555,8 +559,9 @@ body {
 .item .when {
   font-family: Consolas, ui-monospace, monospace; font-size: 0.72rem;
   color: var(--lit); opacity: 0.7;
+  white-space: nowrap;
 }
-.iacts { flex: 0 0 auto; display: flex; gap: 6px; }
+.iacts { flex: 0 0 auto; display: flex; flex-wrap: wrap; gap: 6px; margin-left: auto; }
 .iacts .chip { font-size: 0.74rem; padding: 0.3rem 0.7rem; }
 
 .empty { margin: 0; font-size: 0.82rem; color: var(--cream); opacity: 0.55; }

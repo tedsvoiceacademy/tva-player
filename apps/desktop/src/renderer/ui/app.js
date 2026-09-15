@@ -955,10 +955,17 @@ async function refreshTakes() {
     const left = document.createElement('span');
     left.className = 'itext';
     const name = document.createElement('span');
-    name.className = 'name'; name.textContent = take.name;
+    /* The file name ends in the date and time it was made, and the line
+       underneath already says that in words. Printed twice it read as a
+       mistake, so the stamp comes off the name here and stays on the file. */
+    name.className = 'name';
+    name.textContent = take.name.replace(/\s+\d{4}-\d{2}-\d{2} \d{2}\.\d{2}\.\d{2}$/, '');
     const when = document.createElement('span');
     when.className = 'when';
-    when.textContent = new Date(take.madeAt).toLocaleString();
+    /* Down to the second is more than anybody needs and it stacked the row
+       three lines deep. The date and the minute say which take this is. */
+    when.textContent = new Date(take.madeAt)
+      .toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
     left.append(name, when);
 
     const acts = document.createElement('span');

@@ -2,6 +2,7 @@
    Left side 440 Hz, right side 660 Hz — different on purpose, so the balance
    control and the lead-quieter tail can each be told apart by ear or by maths. */
 import { writeFileSync } from 'node:fs';
+import { pathToFileURL } from 'node:url';
 
 /* A REAL MP3, not a WAV with a different name.
  *
@@ -69,4 +70,20 @@ export function makeSong(path, {
   return path;
 }
 
-if (process.argv[2]) { makeSong(process.argv[2]); console.log('wrote', process.argv[2]); }
+/* Writing a song from the command line, ONLY when this file is the program
+   being run.
+ *
+ * This guard was missing, and it cost a whole afternoon. scripts/installed-
+ * harness.mjs is given the path of the installed application, and it imports
+ * this file — so the moment it did, this line wrote a test tone OVER
+ * "TVA Player.exe". Windows then could not start the app, because the app was
+ * no longer a program. Every symptom followed from that: "spawn UNKNOWN", an
+ * app that started and vanished, an empty log. Three wrong explanations were
+ * written down before the line "wrote C:\...\TVA Player.exe" in the output
+ * turned out to be this. */
+const runDirectly = process.argv[1]
+  && pathToFileURL(process.argv[1]).href === import.meta.url;
+if (runDirectly && process.argv[2]) {
+  makeSong(process.argv[2]);
+  console.log('wrote', process.argv[2]);
+}

@@ -184,7 +184,7 @@ async function openSong(next) {
 /* ---- Painting ----------------------------------------------------------- */
 
 const SWEEP = 122.5;                       // three-quarters of a radius-26 circle
-const KNOB_CENTRE = { balance: 0.5 };      // Sides reads from the middle out
+const KNOB_CENTRE = { balance: 0.5 };      // Pan reads from the middle out
 
 function paintKnob(input) {
   const knob = input.closest('.knob');

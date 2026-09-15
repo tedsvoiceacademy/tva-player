@@ -102,6 +102,18 @@ jobs:
           Write-Host "Install folder: $parent"
           if ($parent -like '*@*') { throw "The install folder is named '$parent'." }
 
+          # A one-click installer opens the app as soon as it finishes, which is
+          # what Ted wants and is wrong here: the checks start their own copy
+          # and the two would be fighting over the same app. Close it first.
+          $running = Get-Process -Name 'TVA Player' -ErrorAction SilentlyContinue
+          if ($running) {
+            Write-Host "The installer opened the app (pid $($running.Id -join ',')). Closing it."
+            $running | Stop-Process -Force
+            Start-Sleep -Seconds 2
+          } else {
+            Write-Host 'The installer did not leave the app running.'
+          }
+
           "TVA_EXE=$($found.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Append
 
       - name: The INSTALLED app, launched and driven

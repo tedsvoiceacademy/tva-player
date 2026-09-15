@@ -36,6 +36,27 @@ if (!exe) {
   console.error('Cannot find the packaged app. Looked in:\n  ' + candidates.join('\n  '));
   process.exit(1);
 }
+/* THE FILE WE ARE ABOUT TO RUN IS STILL A PROGRAM.
+ *
+ * This looks paranoid and is not. This harness is handed the path of the
+ * installed application, and one of its own imports used to write a test tone
+ * to whatever was in argv[2] — so on every Windows run it replaced
+ * "TVA Player.exe" with an eight-second sine wave before trying to start it.
+ * Windows reported "spawn UNKNOWN", the app never appeared, and five rounds of
+ * diagnosis went looking for a start-up crash in an app that was no longer
+ * there. A Windows program begins "MZ" and an ELF binary begins 0x7F "ELF";
+ * anything else means something has damaged it. */
+const head = (await import('node:fs/promises')).readFile;
+const first4 = (await head(exe)).subarray(0, 4);
+const looksLikeProgram = first4.subarray(0, 2).toString('latin1') === 'MZ'
+  || (first4[0] === 0x7f && first4.subarray(1, 4).toString('latin1') === 'ELF');
+if (!looksLikeProgram) {
+  console.error(`The file at ${exe} is not a program. It starts with `
+    + `${[...first4].map((b) => b.toString(16).padStart(2, '0')).join(' ')}. `
+    + 'Something has overwritten the installed application.');
+  process.exit(1);
+}
+
 console.log(`Driving the packaged app at ${exe}\n`);
 
 const results = [];
@@ -129,65 +150,86 @@ const attempts = [
   },
 ];
 
+/* WHAT COUNTS AS STARTED.
+ *
+ * Not "spawn did not throw". `cmd.exe start` hands the work to cmd and returns
+ * at once whether or not the app ever appears, so the previous version of this
+ * printed "Started with: cmd.exe start" about a run in which the app never ran.
+ * That is a measurement that cannot fail, which is the thing this project keeps
+ * having to root out.
+ *
+ * So each way of starting it gets its own wait for the debugging port. The app
+ * has answered or it has not, and the ladder moves on.
+ */
+const { readFile } = await import('node:fs/promises');
+const { execFileSync } = await import('node:child_process');
+
+const ask = (script) => {
+  try {
+    return execFileSync('powershell.exe', ['-NoProfile', '-Command', script],
+      { encoding: 'utf8' }).trim() || '(nothing)';
+  } catch (e) { return `could not ask: ${e.message.split('\n')[0]}`; }
+};
+
+async function connectWithin(seconds) {
+  for (let tries = 0; tries < seconds * 2; tries++) {
+    await new Promise((r) => setTimeout(r, 500));
+    try { return await chromium.connectOverCDP(`http://127.0.0.1:${PORT}`); }
+    catch { /* not up yet */ }
+  }
+  return null;
+}
+
+function stillRunning() {
+  if (!onWindows) return 'not asked';
+  return ask("$p = Get-Process -Name 'TVA Player' -ErrorAction SilentlyContinue; "
+    + "if ($p) { $p.Id -join ',' } else { 'no' }");
+}
+
 let child = null;
+let browser = null;
 const tried = [];
 for (const attempt of attempts) {
   if (attempt.when === false) continue;
+  let started = null;
   try {
-    const started = attempt.run();
-    // spawn throws synchronously for this failure, so reaching here is success.
+    started = attempt.run();
     await new Promise((resolve, reject) => {
       const ok = setTimeout(resolve, 400);
       started.once('error', (err) => { clearTimeout(ok); reject(err); });
     });
+  } catch (err) {
+    tried.push(`${attempt.name}: could not be started — ${err.code ?? err.message}`);
+    continue;
+  }
+
+  browser = await connectWithin(40);
+  if (browser) {
     child = started;
     console.log(`Started with: ${attempt.name}\n`);
     break;
-  } catch (err) {
-    tried.push(`${attempt.name}: ${err.code ?? err.message}`);
   }
-}
 
-if (!child) {
-  console.error('None of the ways of starting the app worked:');
-  for (const line of tried) console.error(`  ${line}`);
-  process.exit(1);
-}
-
-// Wait for the port to answer, rather than guessing how long start-up takes.
-let browser = null;
-for (let tries = 0; tries < 120 && !browser; tries++) {
-  await new Promise((r) => setTimeout(r, 500));
-  try {
-    browser = await chromium.connectOverCDP(`http://127.0.0.1:${PORT}`);
-  } catch { /* not up yet */ }
-}
-if (!browser) {
-  console.error('The app did not open a debugging port within 60 seconds.');
-  const { readFile } = await import('node:fs/promises');
+  /* It was launched and it did not answer. Say what the app itself said on the
+     way out — on Windows that goes nowhere at all unless it is asked for, which
+     is why the log file is in the arguments. */
   const log = await readFile(logFile, 'utf8').catch(() => null);
-  console.error(`--- what the app itself logged ---\n${log?.trim() || '(nothing was written)'}`);
-  /* Say WHY, rather than leaving the next person to guess. Everything the app
-     printed on its way out, and whether it is even running. */
+  tried.push(`${attempt.name}: launched, then no debugging port in 40s`
+    + ` (running: ${stillRunning()})`
+    + `\n      what the app logged: ${log?.trim().replace(/\n/g, '\n      ') || '(nothing was written)'}`);
+  try { started.kill(); } catch {}
+  if (onWindows) ask("Get-Process -Name 'TVA Player' -ErrorAction SilentlyContinue | Stop-Process -Force");
+  await rm(logFile, { force: true });
+}
+
+if (!browser) {
+  console.error('The app never came up. Every way of starting it was tried:');
+  for (const line of tried) console.error(`  ${line}`);
   if (onWindows) {
-    /* Wrapped so the diagnosis cannot itself crash and take the answer with it,
-       which is what happened the first time: Get-Process found nothing, the
-       pipeline exited non-zero, and the report died before printing anything. */
-    const { execFileSync } = await import('node:child_process');
-    const ask = (script) => {
-      try {
-        return execFileSync('powershell.exe', ['-NoProfile', '-Command', script],
-          { encoding: 'utf8' }).trim() || '(nothing)';
-      } catch (e) { return `could not ask: ${e.message.split('\n')[0]}`; }
-    };
-    console.error('--- is it running? --- ' + ask(
-      "$p = Get-Process -Name 'TVA Player' -ErrorAction SilentlyContinue; "
-      + 'if ($p) { $p.Id -join \',\' } else { \'no\' }'));
     console.error('--- is the port open? --- ' + ask(
       `$c = Get-NetTCPConnection -LocalPort ${PORT} -ErrorAction SilentlyContinue; `
-      + 'if ($c) { $c.State -join \',\' } else { \'no\' }'));
+      + "if ($c) { $c.State -join ',' } else { 'no' }"));
   }
-  try { child.kill(); } catch {}
   process.exit(1);
 }
 

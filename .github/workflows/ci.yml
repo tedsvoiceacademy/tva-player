@@ -50,3 +50,20 @@ jobs:
       - run: npm run test:harness
       - run: npm run build:code -w @tva/desktop
       - run: node scripts/app-harness.mjs
+
+      # Build the installer on every push, not only on a tagged release, and
+      # leave it attached to the run. Ted can download and install the current
+      # state of the app at any time without anybody tagging anything — which
+      # matters because the things only his own machines can prove (the
+      # SmartScreen path, the file associations, double-clicking a song in
+      # Explorer) are the ones nothing here can check.
+      - name: Build the installer
+        run: npm run build -w @tva/desktop
+
+      - name: Attach it to this run
+        uses: actions/upload-artifact@v4
+        with:
+          name: TVA-Player-installer
+          path: release/*.exe
+          if-no-files-found: error
+          retention-days: 30

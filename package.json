@@ -9,7 +9,7 @@
     "apps/desktop"
   ],
   "scripts": {
-    "dev": "npm run dev -w @tva/desktop",
+    "dev": "npm run dev -w tva-player",
     "typecheck": "tsc -p packages/practice-core --noEmit",
     "test": "npm run test:harness && npm run test:harness:control && npm run test:no-native",
     "test:harness": "node scripts/player-harness.mjs",
@@ -17,8 +17,8 @@
     "test:app": "node scripts/app-harness.mjs",
     "test:app:control": "node scripts/app-harness.mjs --negative-control",
     "test:no-native": "node scripts/no-native-modules.mjs",
-    "build": "npm run build -w @tva/desktop",
-    "release": "npm run release -w @tva/desktop"
+    "build": "npm run build -w tva-player",
+    "release": "npm run release -w tva-player"
   },
   "devDependencies": {
     "@breezystack/lamejs": "^1.2.7",

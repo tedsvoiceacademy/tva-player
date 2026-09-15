@@ -37,7 +37,7 @@ Three rules hold the rest together:
 npm install
 npm run test            # the maths, and proof those checks can fail
 npm run test:no-native
-npm run build:code -w @tva/desktop
+npm run build:code -w tva-player
 xvfb-run -a node scripts/app-harness.mjs                     # the app, driven
 xvfb-run -a node scripts/app-harness.mjs --negative-control  # and proof it can fail
 ```

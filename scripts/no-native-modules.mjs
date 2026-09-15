@@ -20,7 +20,7 @@ const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 function shippedPackageNames() {
   let raw;
   try {
-    raw = execFileSync('npm', ['ls', '--omit=dev', '--all', '--json', '-w', '@tva/desktop'],
+    raw = execFileSync('npm', ['ls', '--omit=dev', '--all', '--json', '-w', 'tva-player'],
       { cwd: ROOT, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
   } catch (err) {
     raw = err.stdout;   // npm exits non-zero when the tree has problems, and still prints it

@@ -28,7 +28,7 @@ jobs:
 
       - run: npm run typecheck
 
-      - run: npm run build:code -w @tva/desktop
+      - run: npm run build:code -w tva-player
 
       # The app itself, launched the way Windows launches it. Chromium needs a
       # display even to run headless Electron, hence xvfb.
@@ -62,7 +62,7 @@ jobs:
 
       - run: npm run test:harness
       - run: npm run test:harness:control
-      - run: npm run build:code -w @tva/desktop
+      - run: npm run build:code -w tva-player
 
       - name: The app, launched and driven
         run: node scripts/app-harness.mjs
@@ -70,7 +70,7 @@ jobs:
         run: node scripts/app-harness.mjs --negative-control
 
       - name: Build the installer
-        run: npm run build -w @tva/desktop
+        run: npm run build -w tva-player
 
       # RUN THE INSTALLER. It had never once been run: CI built it and nobody
       # installed it, so an installer that failed would have shipped unnoticed.
@@ -81,14 +81,28 @@ jobs:
           if (-not $setup) { throw 'No installer was produced.' }
           Write-Host "Running $($setup.FullName)"
           Start-Process -FilePath $setup.FullName -ArgumentList '/S' -Wait
-          $exe = Join-Path $env:LOCALAPPDATA 'Programs\tva-player\TVA Player.exe'
-          if (-not (Test-Path $exe)) {
-            Get-ChildItem (Join-Path $env:LOCALAPPDATA 'Programs') -Recurse -Filter '*.exe' |
-              Select-Object -First 20 | ForEach-Object { Write-Host $_.FullName }
-            throw "The installer ran but $exe is not there."
+
+          # Found, not guessed. The first version hard-coded a path, guessed it
+          # wrong, and reported an installer failure when the installer had
+          # worked perfectly.
+          $programs = Join-Path $env:LOCALAPPDATA 'Programs'
+          $found = Get-ChildItem $programs -Recurse -Filter 'TVA Player.exe' -ErrorAction SilentlyContinue |
+            Select-Object -First 1
+          if (-not $found) {
+            Get-ChildItem $programs -Recurse -Filter '*.exe' -ErrorAction SilentlyContinue |
+              Select-Object -First 30 | ForEach-Object { Write-Host $_.FullName }
+            throw 'The installer ran but no "TVA Player.exe" appeared under Programs.'
           }
-          Write-Host "Installed at $exe"
-          "TVA_EXE=$exe" | Out-File -FilePath $env:GITHUB_ENV -Append
+          Write-Host "Installed at $($found.FullName)"
+
+          # The folder it lands in is what Ted would see in Explorer, so it has
+          # to read as the name of an app and not as an npm package.
+          $folder = Split-Path $found.FullName -Leaf
+          $parent = Split-Path (Split-Path $found.FullName -Parent) -Leaf
+          Write-Host "Install folder: $parent"
+          if ($parent -like '*@*') { throw "The install folder is named '$parent'." }
+
+          "TVA_EXE=$($found.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Append
 
       - name: The INSTALLED app, launched and driven
         run: node scripts/installed-harness.mjs "$env:TVA_EXE"

@@ -25,12 +25,12 @@ jobs:
 
       - name: The app, launched and driven
         run: |
-          npm run build:code -w @tva/desktop
+          npm run build:code -w tva-player
           node scripts/app-harness.mjs
 
       # electron-builder publishes the installer, latest.yml and the blockmap.
       # latest.yml is what the installed app reads to know an update exists.
       - name: Build and publish
-        run: npm run release -w @tva/desktop
+        run: npm run release -w tva-player
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

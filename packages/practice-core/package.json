@@ -4,6 +4,5 @@
   "private": true,
   "type": "module",
   "description": "The pure maths and data model behind the player. Imports nothing.",
-  "main": "src/index.ts",
-  "scripts": { "test": "vitest run" }
+  "main": "src/index.ts"
 }

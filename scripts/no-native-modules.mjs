@@ -18,8 +18,27 @@ import { fileURLToPath } from 'node:url';
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 
 function shippedPackageNames() {
-  const raw = execFileSync('npm', ['ls', '--omit=dev', '--all', '--json', '-w', '@tva/desktop'],
-    { cwd: ROOT, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
+  let raw;
+  try {
+    raw = execFileSync('npm', ['ls', '--omit=dev', '--all', '--json', '-w', '@tva/desktop'],
+      { cwd: ROOT, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
+  } catch (err) {
+    raw = err.stdout;   // npm exits non-zero when the tree has problems, and still prints it
+  }
+
+  const tree = JSON.parse(raw ?? '{}');
+
+  /* A tree that does not match package.json would give a list of shipped
+     packages that is simply wrong, and this script would then report a native
+     module that is not shipped at all — which is what it did once. Say what is
+     actually wrong instead. */
+  if (tree.problems?.length) {
+    console.error('The installed packages do not match package.json, so what ships cannot be');
+    console.error('worked out. Run "npm install" and try again.\n');
+    for (const problem of tree.problems.slice(0, 5)) console.error('  ' + problem);
+    process.exit(1);
+  }
+
   const names = new Set();
   const walk = (deps) => {
     for (const [name, node] of Object.entries(deps ?? {})) {
@@ -27,7 +46,6 @@ function shippedPackageNames() {
       walk(node.dependencies);
     }
   };
-  const tree = JSON.parse(raw);
   walk(tree.dependencies);
   for (const ws of Object.values(tree.dependencies ?? {})) walk(ws.dependencies);
   return names;

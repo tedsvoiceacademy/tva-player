@@ -78,33 +78,23 @@ const args = [
   `--use-file-for-fake-audio-capture=${micFile}`,
   songPath,
 ];
-/* Windows needs its own launcher for this.
- *
- * Node's spawn refuses a packaged windowed application outright — "spawn
- * UNKNOWN", measured on the build runner — so on Windows the app is started
- * through PowerShell's Start-Process, which is what actually knows how to
- * launch one. Everywhere else spawn is fine. */
 const onWindows = process.platform === 'win32';
-const env = { ...process.env, OneDrive: '', OneDriveConsumer: '', OneDriveCommercial: '' };
-const outLog = join(work, 'app-out.txt');
-const errLog = join(work, 'app-err.txt');
 
-/* Start-Process joins its argument list into one command line, so an argument
-   holding a space — a song called "Packaged Test.mp3" — has to carry its own
-   double quotes or the app receives it as two arguments. */
-const psArg = (a) => `'"${String(a).replace(/"/g, '\\"').replace(/'/g, "''")}"'`;
-const psPath = (a) => `'${String(a).replace(/'/g, "''")}'`;
+/* The environment the app is given.
+ *
+ * OneDrive has to be absent so the settings land in the work folder rather than
+ * in a real OneDrive — and it has to be ABSENT, not set to an empty string.
+ * An environment variable whose value is "" breaks process creation on Windows:
+ * Node's own spawn failed with "spawn UNKNOWN", and handing the same
+ * environment to PowerShell made Start-Process report the executable as "not
+ * compatible with the version of Windows you're running". Two different and
+ * equally misleading errors, both from this. Deleting the keys fixes both. */
+const env = { ...process.env };
+for (const key of Object.keys(env)) {
+  if (/^onedrive/i.test(key)) delete env[key];
+}
 
-const child = onWindows
-  ? spawn('powershell.exe', [
-      '-NoProfile', '-NonInteractive', '-Command',
-      `Start-Process -FilePath ${psPath(exe)}`
-      + ` -ArgumentList @(${args.map(psArg).join(',')})`
-      + ` -RedirectStandardOutput ${psPath(outLog)}`
-      + ` -RedirectStandardError ${psPath(errLog)}`,
-    ], { env, stdio: 'inherit', windowsHide: true })
-  : spawn(exe, args, { env, stdio: 'ignore' });
-
+const child = spawn(exe, args, { env, stdio: 'ignore', windowsHide: true });
 child.on('error', (err) => { console.error('The app would not start at all:', err); });
 
 // Wait for the port to answer, rather than guessing how long start-up takes.
@@ -119,23 +109,23 @@ if (!browser) {
   console.error('The app did not open a debugging port within 60 seconds.');
   /* Say WHY, rather than leaving the next person to guess. Everything the app
      printed on its way out, and whether it is even running. */
-  const { readFile } = await import('node:fs/promises');
-  for (const [label, file] of [['stdout', outLog], ['stderr', errLog]]) {
-    const text = await readFile(file, 'utf8').catch(() => null);
-    console.error(`--- app ${label} ---\n${text?.trim() || '(nothing)'}`);
-  }
   if (onWindows) {
+    /* Wrapped so the diagnosis cannot itself crash and take the answer with it,
+       which is what happened the first time: Get-Process found nothing, the
+       pipeline exited non-zero, and the report died before printing anything. */
     const { execFileSync } = await import('node:child_process');
-    try {
-      const running = execFileSync('powershell.exe', ['-NoProfile', '-Command',
-        "Get-Process -Name 'TVA Player' -ErrorAction SilentlyContinue | "
-        + 'Select-Object -ExpandProperty Id'], { encoding: 'utf8' }).trim();
-      console.error(`--- is it running? --- ${running ? `yes, as ${running}` : 'no'}`);
-      const ports = execFileSync('powershell.exe', ['-NoProfile', '-Command',
-        `Get-NetTCPConnection -LocalPort ${PORT} -ErrorAction SilentlyContinue | `
-        + 'Select-Object -ExpandProperty State'], { encoding: 'utf8' }).trim();
-      console.error(`--- is the port open? --- ${ports || 'no'}`);
-    } catch (e) { console.error('--- could not ask Windows ---', e.message); }
+    const ask = (script) => {
+      try {
+        return execFileSync('powershell.exe', ['-NoProfile', '-Command', script],
+          { encoding: 'utf8' }).trim() || '(nothing)';
+      } catch (e) { return `could not ask: ${e.message.split('\n')[0]}`; }
+    };
+    console.error('--- is it running? --- ' + ask(
+      "$p = Get-Process -Name 'TVA Player' -ErrorAction SilentlyContinue; "
+      + 'if ($p) { $p.Id -join \',\' } else { \'no\' }'));
+    console.error('--- is the port open? --- ' + ask(
+      `$c = Get-NetTCPConnection -LocalPort ${PORT} -ErrorAction SilentlyContinue; `
+      + 'if ($c) { $c.State -join \',\' } else { \'no\' }'));
   }
   try { child.kill(); } catch {}
   process.exit(1);
@@ -311,13 +301,6 @@ try {
     refusal.error ?? refusal.after);
 } finally {
   await browser.close().catch(() => {});
-  /* Start-Process launches a detached app, so killing the PowerShell that
-     started it leaves the app running. Ask Windows to close it by name. */
-  if (onWindows) {
-    try {
-      spawn('taskkill.exe', ['/IM', 'TVA Player.exe', '/F'], { stdio: 'ignore', windowsHide: true });
-    } catch { /* already gone */ }
-  }
   try { child.kill(); } catch {}
   await new Promise((r) => setTimeout(r, 1200));
   await rm(work, { recursive: true, force: true }).catch(() => {});

@@ -52,11 +52,25 @@ if (NEGATIVE) {
   await writeFile(graphPath, broken);
 }
 
+/* Its own data directory, for two reasons that both bite on CI.
+ *
+ * The app holds a single-instance lock so that double-clicking a second song
+ * opens it in the window already on screen rather than starting another copy.
+ * That lock is per data directory, so two harness runs back to back — the
+ * normal one and the negative control — would have the second instance see the
+ * lock still held by a process that has not finished exiting, quit on the spot,
+ * and time out having done nothing. It looks exactly like the app being broken.
+ *
+ * It also keeps each run's settings to itself, so one run cannot open a song
+ * that the previous run had already saved a speed for. */
+const userDataDir = join(work, 'user-data');
+
 const app = await electron.launch({
   args: [
     join(ROOT, 'apps/desktop'),
     '--no-sandbox',
     '--autoplay-policy=no-user-gesture-required',
+    `--user-data-dir=${userDataDir}`,
     songPath, ...extraSongs,        // exactly how Windows hands over a multi-select
   ],
   env: { ...process.env, ONEDRIVE: '', OneDrive: '', OneDriveConsumer: '', OneDriveCommercial: '' },

@@ -650,6 +650,8 @@ window.tva.onShortcut((id) => {
 });
 
 window.tva.onReady(async (info) => {
+  // Read by the checks: which media keys the app really managed to claim.
+  window.__tvaShortcuts = info.shortcutsRegistered ?? [];
   $('where').textContent = info.oneDrive
     ? `Version ${info.version}. Your marked parts, named parts and notes are kept in `
       + `${info.settingsRoot}, which OneDrive copies to your other computer. `

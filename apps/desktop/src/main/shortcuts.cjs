@@ -22,13 +22,17 @@ const KEYS = [
 function registerShortcuts(enabled, send) {
   globalShortcut.unregisterAll();
   const taken = [];
+  const registered = [];
   for (const key of KEYS) {
     if (enabled[key.id] === false) continue;
     const ok = globalShortcut.register(key.accelerator, () => send(key.id));
-    if (!ok) taken.push(key.label);
+    if (ok) registered.push(key.id); else taken.push(key.label);
   }
-  // The caller tells him which keys another app is already holding.
-  return { taken };
+  /* `taken` is what the person is told: which keys another app is holding.
+     `registered` is what a check reads, so that "the media keys work" is
+     answered by the running app rather than by asking Electron whether it has
+     the function — the app is the only thing that knows if it succeeded. */
+  return { taken, registered };
 }
 
 module.exports = { registerShortcuts, KEYS };

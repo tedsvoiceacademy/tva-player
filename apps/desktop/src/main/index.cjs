@@ -295,6 +295,7 @@ if (!app.requestSingleInstanceLock()) {
         repaired,
         recordingsDir,
         shortcutsTaken: shortcutResult.taken,
+        shortcutsRegistered: shortcutResult.registered,
         version: app.getVersion(),
       });
       if (!openedFromArgv) {

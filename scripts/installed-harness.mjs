@@ -9,7 +9,8 @@
  *
  * Run: xvfb-run -a node scripts/installed-harness.mjs <path to the app binary>
  */
-import { _electron as electron } from '@playwright/test';
+import { chromium } from '@playwright/test';
+import { spawn } from 'node:child_process';
 import { mkdtemp, mkdir, rm, writeFile, readdir } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -56,19 +57,51 @@ await writeFile(join(work, 'ud', 'Player Settings', 'settings.json'),
 const micFile = join(work, 'mic.wav');
 makeSong(micFile, { seconds: 20, left: 440, right: 440 });
 
-const app = await electron.launch({
-  executablePath: exe,
-  args: [
-    '--no-sandbox',
-    `--user-data-dir=${join(work, 'ud')}`,
-    '--use-fake-device-for-media-stream',
-    `--use-file-for-fake-audio-capture=${micFile}`,
-    songPath,
-  ],
+/* HOW THE PACKAGED APP IS DRIVEN.
+ *
+ * Playwright's own Electron launcher reads a "DevTools listening on ws://…"
+ * line off the app's standard error. A packaged Windows app is built as a
+ * windowed program with no console attached, so that line never arrives and
+ * the launch times out — the app is running perfectly and Playwright simply
+ * cannot see it. Measured on the build runner: the installer worked, the app
+ * was there, and this was the only thing that failed.
+ *
+ * So the app is started as itself, told to open a debugging port, and attached
+ * to over that port. It works the same way on both platforms, so there is one
+ * path here rather than two. */
+const PORT = 9333;
+const args = [
+  '--no-sandbox',
+  `--remote-debugging-port=${PORT}`,
+  `--user-data-dir=${join(work, 'ud')}`,
+  '--use-fake-device-for-media-stream',
+  `--use-file-for-fake-audio-capture=${micFile}`,
+  songPath,
+];
+const child = spawn(exe, args, {
   env: { ...process.env, OneDrive: '', OneDriveConsumer: '', OneDriveCommercial: '' },
+  stdio: 'ignore',
+  detached: false,
 });
+child.on('error', (err) => { console.error('The app would not start at all:', err); });
 
-const page = await app.firstWindow();
+// Wait for the port to answer, rather than guessing how long start-up takes.
+let browser = null;
+for (let tries = 0; tries < 60 && !browser; tries++) {
+  await new Promise((r) => setTimeout(r, 500));
+  try {
+    browser = await chromium.connectOverCDP(`http://127.0.0.1:${PORT}`);
+  } catch { /* not up yet */ }
+}
+if (!browser) {
+  console.error(`The app did not open a debugging port within 30 seconds. `
+    + `It may have failed to start, or quit immediately.`);
+  try { child.kill(); } catch {}
+  process.exit(1);
+}
+
+const context = browser.contexts()[0];
+const page = context.pages()[0] ?? await context.waitForEvent('page');
 await page.waitForLoadState('domcontentloaded');
 
 try {
@@ -180,13 +213,12 @@ try {
     (await page.textContent('#t-note')) === 'A4', await page.textContent('#t-note'));
 
   console.log('\n--- the media keys ---');
-  const keys = await app.evaluate(({ globalShortcut }) => {
-    const wanted = ['MediaPlayPause', 'MediaNextTrack', 'MediaPreviousTrack', 'MediaStop'];
-    return wanted.map((k) => ({ key: k, held: globalShortcut.isRegistered(k) }));
-  });
-  check('every media key is registered by the running app',
-    keys.every((k) => k.held),
-    keys.map((k) => `${k.key}:${k.held ? 'yes' : 'no'}`).join(' '));
+  /* What the app itself reports it managed to claim. Asking Electron whether
+     it HAS globalShortcut would pass on a build that never called it. */
+  const keys = await page.evaluate(() => window.__tvaShortcuts ?? null);
+  check('the app claims all four media keys',
+    Array.isArray(keys) && keys.length === 4,
+    keys ? keys.join(', ') : 'the app reported nothing at all');
 
   console.log('\n--- capturing what the computer is playing ---');
   /* ACTUALLY ASK FOR IT.
@@ -237,7 +269,9 @@ try {
     (refusal.after ?? '').includes('minutes'),
     refusal.error ?? refusal.after);
 } finally {
-  await app.close().catch(() => {});
+  await browser.close().catch(() => {});
+  try { child.kill(); } catch {}
+  await new Promise((r) => setTimeout(r, 500));
   await rm(work, { recursive: true, force: true });
 }
 

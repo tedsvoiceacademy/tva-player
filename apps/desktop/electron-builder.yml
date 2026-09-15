@@ -30,10 +30,14 @@ fileAssociations:
 
 win:
   target: [nsis]
-  # No certificate. Windows shows one SmartScreen warning on the first install
-  # per machine; docs/TED-README.md has a picture of it and the two clicks.
-  # The escalation, if it ever becomes worth it, is Azure Trusted Signing.
-  signAndEditExecutable: false
+  # No certificate is configured, so nothing is signed. Windows shows one
+  # SmartScreen warning on the first install per machine; docs/TED-README.md
+  # says what it looks like and which two things to click. The escalation, if
+  # it ever becomes worth it, is Azure Trusted Signing.
+  #
+  # signAndEditExecutable is deliberately left alone: turning it off would also
+  # stop the app's own name, version and icon being written into the .exe, so
+  # it would show up in Task Manager as a nameless Electron process.
 
 nsis:
   oneClick: true

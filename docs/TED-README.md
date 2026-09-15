@@ -5,12 +5,15 @@
 Every time I change the app, a fresh Windows installer is built automatically
 and left on that build's own page. To fetch the current one:
 
-1. Go to
-   https://github.com/tedsvoiceacademy/tva-player/actions/workflows/ci.yml
-2. Click the entry at the top of the list — that is the most recent build. A
-   green tick beside it means everything passed.
-3. Scroll to the bottom of that page to a box headed **Artifacts**, and click
-   **TVA-Player-installer**. It downloads as a zip.
+1. Go to https://github.com/tedsvoiceacademy/tva-player/actions
+   You get a **list** of builds. The installer is not on this list page — it is
+   inside one of them.
+2. **Click the blue title of the top entry** to open that build. It is the most
+   recent one, and a green tick beside it means everything passed. (If it has a
+   yellow dot it is still running — wait about two minutes and reload.)
+3. You are now on that build's own page. Scroll all the way to the bottom. Under
+   a heading **Artifacts** there is one row, **TVA-Player-installer**. Click it
+   and it downloads as a zip.
 4. Open the zip and pull the `.exe` out of it.
 
 ## Installing it, the first time on each computer

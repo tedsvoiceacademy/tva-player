@@ -10,13 +10,11 @@
     "build": "npm run build:code && electron-builder --win --publish never",
     "release": "npm run build:code && electron-builder --win --publish always"
   },
-  "dependencies": {
-    "electron-updater": "^6.3.9",
-    "music-metadata": "^10.6.0",
-    "signalsmith-stretch": "1.3.2"
-  },
+  "dependencies": {},
   "devDependencies": {
     "electron": "44.4.0",
-    "electron-builder": "^25.1.8"
-  }
+    "electron-builder": "^26.0.0",
+    "signalsmith-stretch": "1.3.2"
+  },
+  "author": "Ted Chamberlain <ted@tedsvoiceacademy.com>"
 }

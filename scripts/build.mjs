@@ -8,6 +8,7 @@
  */
 import esbuild from 'esbuild';
 import { mkdir, copyFile, rm } from 'node:fs/promises';
+import { existsSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -29,10 +30,22 @@ await esbuild.build({ ...shared, entryPoints: [ENTRY], format: 'esm',
 
 /* The renderer is served from the app's own origin under a strict policy, so it
    cannot reach into node_modules. The stretch library is copied in beside it.
-   It carries its own WASM and worklet, so this one file is the whole of it. */
-await copyFile(
-  join(ROOT, 'node_modules/signalsmith-stretch/SignalsmithStretch.mjs'),
-  join(DESKTOP, 'dist/renderer/vendor/SignalsmithStretch.mjs'));
+   It carries its own WASM and worklet, so this one file is the whole of it —
+   and copying it means THE PACKAGED APP HAS NO RUNTIME DEPENDENCIES AT ALL,
+   which is what keeps the installer build simple.
+ *
+   npm may hoist the package to the root or leave it in the workspace, so both
+   are tried rather than one being assumed. */
+const STRETCH = 'signalsmith-stretch/SignalsmithStretch.mjs';
+const candidates = [
+  join(ROOT, 'node_modules', STRETCH),
+  join(DESKTOP, 'node_modules', STRETCH),
+];
+const stretchSource = candidates.find((p) => existsSync(p));
+if (!stretchSource) {
+  throw new Error(`Cannot find ${STRETCH}. Looked in:\n  ${candidates.join('\n  ')}`);
+}
+await copyFile(stretchSource, join(DESKTOP, 'dist/renderer/vendor/SignalsmithStretch.mjs'));
 
 /* Everything that is already plain JavaScript is copied rather than compiled. */
 const { cp } = await import('node:fs/promises');

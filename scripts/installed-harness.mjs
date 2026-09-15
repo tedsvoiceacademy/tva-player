@@ -70,8 +70,15 @@ makeSong(micFile, { seconds: 20, left: 440, right: 440 });
  * to over that port. It works the same way on both platforms, so there is one
  * path here rather than two. */
 const PORT = 9333;
+const logFile = join(work, 'electron.log');
 const args = [
   '--no-sandbox',
+  /* A packaged Windows app is a windowed program with no console, so anything
+     it says on its way out is lost. Electron will write it to a file instead,
+     which is the only way to see a start-up crash on Windows. */
+  '--enable-logging=file',
+  `--log-file=${logFile}`,
+  '--log-level=0',
   `--remote-debugging-port=${PORT}`,
   `--user-data-dir=${join(work, 'ud')}`,
   '--use-fake-device-for-media-stream',
@@ -157,6 +164,9 @@ for (let tries = 0; tries < 120 && !browser; tries++) {
 }
 if (!browser) {
   console.error('The app did not open a debugging port within 60 seconds.');
+  const { readFile } = await import('node:fs/promises');
+  const log = await readFile(logFile, 'utf8').catch(() => null);
+  console.error(`--- what the app itself logged ---\n${log?.trim() || '(nothing was written)'}`);
   /* Say WHY, rather than leaving the next person to guess. Everything the app
      printed on its way out, and whether it is even running. */
   if (onWindows) {

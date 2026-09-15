@@ -5,6 +5,13 @@ on:
     branches: [main]
   pull_request:
 
+# Only the newest push to a branch holds a runner. Two Windows jobs running at
+# once sat for forty minutes on a step that takes under a minute on its own, and
+# an older run's result is not wanted anyway once a newer commit exists.
+concurrency:
+  group: checks-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   checks:
     runs-on: ubuntu-latest

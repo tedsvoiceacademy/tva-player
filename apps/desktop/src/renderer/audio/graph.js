@@ -42,9 +42,34 @@ export function buildGraph(ctx) {
   const trackGain = ctx.createGain();
   const takeGain = ctx.createGain();
   const clickGain = ctx.createGain();
-  const monitorGain = ctx.createGain();
-  monitorGain.gain.value = 0;            // off until it is asked for, out loud
   const master = ctx.createGain();
+
+  /* Where the microphone arrives. It feeds the recorder, the level meter and
+     the tuner — and NOT the speakers, unless monitoring is explicitly switched
+     on. With echo cancellation off, which is not negotiable for a voice tool,
+     monitoring through speakers howls. */
+  const micGain = ctx.createGain();
+  const monitorGain = ctx.createGain();
+  monitorGain.gain.value = 0;
+  micGain.connect(monitorGain);
+
+  /* For the tuner. Zero smoothing, because a reading that is averaged over time
+     lags behind the note and tells a singer they are in tune after they have
+     already left it.
+   *
+   * IT NEEDS A WAY OUT AS WELL AS A WAY IN. An analyser with an input but no
+   * output is never pulled: it reads as silence for ever, which is exactly what
+   * it did — the recorder was capturing the voice perfectly while the tuner
+   * next to it showed nothing at all. So it empties into a gain of zero that
+   * reaches the speakers, which makes it part of the running graph without
+   * making a sound. */
+  const tuner = ctx.createAnalyser();
+  tuner.fftSize = 4096;
+  tuner.smoothingTimeConstant = 0;
+  const silent = ctx.createGain();
+  silent.gain.value = 0;
+  micGain.connect(tuner);
+  tuner.connect(silent);
 
   splitter.connect(balL, 0);
   splitter.connect(balR, 1);
@@ -56,11 +81,12 @@ export function buildGraph(ctx) {
   takeGain.connect(master);
   clickGain.connect(master);
   monitorGain.connect(master);
+  silent.connect(master);
   master.connect(ctx.destination);
 
   const graph = {
     ctx, splitter, balL, balR, merger, monoSum, midL, midR, midSum,
-    trackGain, takeGain, clickGain, monitorGain, master,
+    trackGain, takeGain, clickGain, micGain, monitorGain, tuner, silent, master,
     _source: null,
   };
   routeTail(graph, { leadQuieter: false, oneSpeaker: false });

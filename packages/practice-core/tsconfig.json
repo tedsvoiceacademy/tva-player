@@ -4,10 +4,21 @@
     "module": "ESNext",
     "moduleResolution": "bundler",
     "strict": true,
-    "noUncheckedIndexedAccess": true,
     "noEmit": true,
     "lib": ["ES2022"],
-    "types": []
+
+    /* "types": [] is the rule this package is built on: not even Node's globals
+       are available here, so nothing in it can quietly reach the file system,
+       the network or the DOM. That is what lets the whole of it run under
+       scripts/player-harness.mjs with no browser and no Electron. */
+    "types": [],
+
+    /* noUncheckedIndexedAccess is deliberately OFF. Over a Float32Array every
+       read is typed `number | undefined`, which is never true at runtime, and
+       the signal-processing code here is nothing but array reads — it produced
+       a `?? 0` on every line and hid real mistakes in the noise. What actually
+       guards this code is the harness measuring what comes out of it. */
+    "noUncheckedIndexedAccess": false
   },
   "include": ["src/**/*.ts"]
 }

@@ -15,7 +15,7 @@ const path = require('node:path');
 const os = require('node:os');
 const crypto = require('node:crypto');
 
-const core = require('../../dist/main/practice-core.cjs');
+const core = require('@tva/practice-core');
 
 const APP_FOLDER = "Ted's Voice Academy";
 const SETTINGS_FOLDER = 'Player Settings';

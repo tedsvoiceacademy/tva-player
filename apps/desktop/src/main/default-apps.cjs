@@ -13,7 +13,7 @@
  */
 const { shell } = require('electron');
 const { execFile } = require('node:child_process');
-const { AUDIO_EXTENSIONS } = require('../../dist/main/practice-core.cjs');
+const { AUDIO_EXTENSIONS } = require('@tva/practice-core');
 
 const PROG_ID_PREFIX = 'com.tedsvoiceacademy.player';
 

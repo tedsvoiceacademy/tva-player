@@ -27,6 +27,16 @@
 
 * { box-sizing: border-box; }
 
+/* HIDDEN MEANS HIDDEN.
+ *
+ * The `hidden` attribute works through a browser rule of `display: none`, and
+ * ANY rule of this stylesheet's that sets display beats it — so `.desk
+ * { display: grid }` left all five tab panels stacked on top of each other, and
+ * `.tbtn svg` left the play button showing pause bars while its label said
+ * Play. Both were found by measuring the real window rather than reading the
+ * source. Stated once here, that whole class of bug cannot come back. */
+[hidden] { display: none !important; }
+
 html, body { height: 100%; }
 
 body {
@@ -51,14 +61,64 @@ body {
  * underneath takes whatever room is left and scrolls on its own if it needs to.
  * The transport, the wave and the knobs are reachable at any window size. */
 #tp {
-  max-width: 1080px;
   height: 100vh;
-  margin: 0 auto;
-  padding: 16px 20px 10px;
+  padding: 14px 16px 12px;
   display: grid;
-  grid-template-rows: auto minmax(0, 1fr) auto;
-  gap: 12px;
+  grid-template-columns: 264px minmax(0, 1fr);
+  gap: 14px;
 }
+@media (max-width: 900px) { #tp { grid-template-columns: 1fr; } #tp .rail { display: none; } }
+
+.mid {
+  min-width: 0; min-height: 0;
+  display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr);
+  gap: 10px;
+}
+
+/* ---- the library rail --------------------------------------------------- */
+
+.rail {
+  min-height: 0; display: grid; gap: 7px;
+  grid-template-rows: auto auto auto minmax(0, 1fr) auto auto;
+  padding: 12px 12px 12px;
+  border-radius: 14px;
+  background: linear-gradient(180deg, rgba(26, 45, 77, 0.5), rgba(10, 22, 40, 0.45));
+  border: 1px solid rgba(255, 255, 255, 0.07);
+}
+.railtop { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.railtop .chip { font-size: 0.72rem; padding: 0.28rem 0.6rem; }
+.find {
+  font: inherit; font-size: 0.82rem; width: 100%;
+  padding: 0.35rem 0.7rem; border-radius: 999px;
+  border: 1px solid rgba(0, 0, 0, 0.5);
+  background: rgba(0, 0, 0, 0.35); color: var(--cream);
+  box-shadow: inset 0 1px 4px rgba(0, 0, 0, 0.6);
+}
+.find:focus { outline: 2px solid var(--gold); outline-offset: 1px; }
+.railrow { display: flex; flex-wrap: wrap; gap: 5px; }
+.railrow .chip { font-size: 0.71rem; padding: 0.26rem 0.6rem; }
+.mini {
+  font: inherit; font-size: 0.72rem; padding: 0.22rem 0.4rem; border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.14); background: #0b1830; color: var(--cream);
+  max-width: 8.5rem;
+}
+.raillist { min-height: 0; overflow-y: auto; overflow-x: hidden; }
+.upnext {
+  margin: 0; font-size: 0.74rem; color: var(--lit); opacity: 0.75;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.song {
+  display: block; width: 100%; text-align: left; border: 0; cursor: pointer;
+  font: inherit; font-size: 0.82rem; color: var(--cream);
+  background: transparent; border-radius: 7px;
+  padding: 5px 8px; margin-bottom: 1px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.song:hover { background: rgba(255, 255, 255, 0.07); }
+.song.on { background: rgba(212, 168, 75, 0.2); color: var(--lit); }
+.song small { display: block; opacity: 0.5; font-size: 0.72rem; }
+.railfoot .wide { width: 100%; justify-content: center; }
 
 .deskwrap { min-height: 0; overflow-y: auto; overflow-x: hidden; padding-right: 2px; }
 .deskwrap::-webkit-scrollbar { width: 9px; }
@@ -68,9 +128,14 @@ body {
 }
 .deskwrap::-webkit-scrollbar-thumb:hover { background: rgba(212, 168, 75, 0.45); }
 
+/* Read by a screen reader, seen by nobody, and — because of the negative
+   margin — taking up no room. Without it this label sat wherever the page
+   happened to put it and stretched the document past the bottom of the
+   window. */
 .vh {
-  position: absolute; width: 1px; height: 1px; overflow: hidden;
-  clip: rect(0 0 0 0); white-space: nowrap;
+  position: absolute; width: 1px; height: 1px;
+  margin: -1px; padding: 0; border: 0; overflow: hidden;
+  clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap;
 }
 
 /* ---- THE CHASSIS -------------------------------------------------------- */
@@ -126,7 +191,7 @@ body {
 .r-clock {
   display: flex; align-items: baseline; gap: 8px; margin-top: 2px;
   font-family: Consolas, ui-monospace, "SF Mono", Menlo, monospace;
-  font-size: 2.15rem; font-weight: 600; line-height: 1.02;
+  font-size: 1.95rem; font-weight: 600; line-height: 1.02;
   color: var(--lit); text-shadow: 0 0 16px rgba(255, 190, 70, 0.5);
   font-variant-numeric: tabular-nums;
 }
@@ -167,7 +232,7 @@ body {
   border: 1px solid rgba(0, 0, 0, 0.5);
 }
 #wave {
-  display: block; width: 100%; height: 104px; border-radius: 8px 8px 0 0;
+  display: block; width: 100%; height: 82px; border-radius: 8px 8px 0 0;
   background: #050c18; touch-action: none; cursor: pointer;
 }
 .ruler {
@@ -192,7 +257,7 @@ body {
 .transport { display: flex; align-items: center; gap: 8px; }
 
 .tbtn {
-  display: grid; place-items: center; width: 44px; height: 44px;
+  display: grid; place-items: center; width: 40px; height: 40px;
   border-radius: 999px; cursor: pointer; padding: 0;
   background: linear-gradient(180deg, rgba(255,255,255,0.12), rgba(255,255,255,0.03));
   border: 1px solid rgba(255, 255, 255, 0.12);
@@ -205,7 +270,7 @@ body {
 
 /* Only play is lit — the one rule that survived every Vocal Fit round. */
 .tbtn.main {
-  width: 56px; height: 56px;
+  width: 52px; height: 52px;
   background: linear-gradient(180deg, var(--gold-hover), #b98f33);
   border-color: rgba(255, 226, 160, 0.65);
   box-shadow: inset 0 1px 0 rgba(255,255,255,0.5),
@@ -221,11 +286,11 @@ body {
 
 .bank { display: flex; gap: 18px; flex-wrap: wrap; }
 .knob {
-  position: relative; width: 86px;
+  position: relative; width: 84px;
   display: flex; flex-direction: column; align-items: center; gap: 2px;
   touch-action: none;
 }
-.dial { width: 58px; height: 58px; display: block; overflow: visible; cursor: ns-resize; }
+.dial { width: 52px; height: 52px; display: block; overflow: visible; cursor: ns-resize; }
 .k-track {
   fill: none; stroke: rgba(255,255,255,0.1); stroke-width: 5; stroke-linecap: round;
   stroke-dasharray: 122.5 1000; transform: rotate(135deg); transform-origin: 32px 32px;
@@ -243,7 +308,7 @@ body {
 /* The real control, sized over its dial. Invisible but focusable, so arrow keys
    and screen readers work and the input stays the source of truth. */
 .knob input[type='range'] {
-  position: absolute; top: 0; left: 14px; width: 58px; height: 58px;
+  position: absolute; top: 0; left: 17px; width: 52px; height: 52px;
   opacity: 0; margin: 0; pointer-events: none;
 }
 .knob:focus-within .k-cap { stroke: var(--gold); stroke-width: 2; }
@@ -257,7 +322,131 @@ body {
   text-align: center; line-height: 1.25; max-width: 86px; min-height: 1.3em;
 }
 
-/* ---- the switch strip --------------------------------------------------- */
+/* ---- each switch says what it does -------------------------------------
+ *
+ * Three ticked boxes in a row, labelled only with their names, told Ted
+ * nothing: "I don't understand this... 1) it isn't clear, and 2) it isn't
+ * usable." A name alone cannot explain a control whose effect is invisible
+ * until you hear it, so each one carries a sentence. */
+
+.switches {
+  display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px 16px;
+  padding-top: 9px; border-top: 1px solid rgba(255, 255, 255, 0.07);
+}
+@media (max-width: 1040px) { .switches { grid-template-columns: 1fr 1fr; } }
+
+.swx {
+  display: grid; grid-template-columns: auto 1fr; gap: 8px; cursor: pointer;
+  align-items: start;
+}
+.swx input { width: 16px; height: 16px; accent-color: var(--gold); margin-top: 2px; }
+.swx b {
+  display: block; font-size: 0.8rem; font-weight: 600;
+  color: var(--cream); line-height: 1.3;
+}
+.swx em {
+  display: block; font-style: normal; font-size: 0.71rem; line-height: 1.3;
+  color: var(--cream); opacity: 0.55; margin-top: 1px;
+}
+.swx.tight b { font-size: 0.78rem; }
+
+/* ---- the tabs ----------------------------------------------------------- */
+
+.tabs { display: flex; gap: 4px; flex-wrap: wrap; }
+.tab {
+  font: inherit; font-size: 0.79rem; font-weight: 600; cursor: pointer;
+  color: var(--cream); background: transparent;
+  border: 1px solid transparent; border-radius: 999px;
+  padding: 0.34rem 0.85rem; opacity: 0.65;
+}
+.tab:hover { opacity: 1; background: rgba(255, 255, 255, 0.06); }
+.tab.on {
+  opacity: 1; color: var(--navy-deep);
+  background: linear-gradient(180deg, var(--gold-hover), var(--gold));
+  border-color: rgba(255, 226, 160, 0.6);
+}
+
+/* ---- the tuner ---------------------------------------------------------- */
+
+.tuner {
+  flex: 0 0 158px; display: grid; align-content: center; gap: 1px;
+  border-radius: 10px; padding: 8px 12px; text-align: center;
+  background: radial-gradient(120% 160% at 50% 0%, #16304a 0%, #061020 70%);
+  border: 1px solid rgba(0, 0, 0, 0.6);
+  box-shadow: inset 0 2px 12px rgba(0, 0, 0, 0.78);
+}
+.tlab {
+  font-size: 0.6rem; letter-spacing: 0.13em; text-transform: uppercase;
+  color: var(--gold); opacity: 0.75;
+}
+.tnote {
+  font-family: Consolas, ui-monospace, monospace; font-size: 1.5rem; font-weight: 600;
+  color: var(--lit); text-shadow: 0 0 12px rgba(255, 190, 70, 0.5); line-height: 1.1;
+}
+.tcents {
+  font-family: Consolas, ui-monospace, monospace; font-size: 0.68rem;
+  color: var(--cream); opacity: 0.6; min-height: 1em;
+}
+.tbar {
+  position: relative; height: 5px; margin-top: 4px; border-radius: 999px;
+  background: rgba(255, 255, 255, 0.1);
+}
+.tbar::after {
+  content: ''; position: absolute; left: 50%; top: -2px; width: 1px; height: 9px;
+  background: rgba(212, 168, 75, 0.7);
+}
+.tbar i {
+  position: absolute; top: -2px; width: 3px; height: 9px; border-radius: 2px;
+  background: var(--cream); left: 50%; transition: left 80ms linear;
+}
+.tbar i.good { background: #7ff0a8; box-shadow: 0 0 7px rgba(127, 240, 168, 0.9); }
+
+/* ---- recording ---------------------------------------------------------- */
+
+.recbtn svg { fill: #ff7a7a; }
+.recbtn.on {
+  background: linear-gradient(180deg, #e06060, #b13a3a);
+  border-color: rgba(255, 170, 170, 0.6);
+}
+.recbtn.on svg { fill: #fff; }
+.lamp.rec {}
+.lamp.rec.lit { background: #ff6b6b; box-shadow: 0 0 9px rgba(255, 107, 107, 0.9); }
+
+.meterrow { display: flex; align-items: center; gap: 10px; margin: 8px 0; }
+.meter {
+  position: relative; flex: 1 1 auto; height: 12px; border-radius: 999px;
+  background: #050c18; border: 1px solid rgba(0, 0, 0, 0.6);
+  box-shadow: inset 0 1px 5px rgba(0, 0, 0, 0.7); overflow: hidden;
+}
+.meter i {
+  position: absolute; left: 0; top: 0; bottom: 0; width: 0;
+  background: linear-gradient(90deg, #4fbf7a 0%, #9ed36a 62%, #e0b85c 84%, #e06060 100%);
+  transition: width 60ms linear;
+}
+.meter b {
+  position: absolute; top: 0; bottom: 0; width: 2px; background: var(--cream);
+  left: 0; opacity: 0.8;
+}
+.meter.clipped { border-color: #e06060; box-shadow: 0 0 0 1px #e06060; }
+.metertext { font-size: 0.76rem; opacity: 0.7; min-width: 12rem; }
+
+.pick {
+  display: inline-flex; align-items: center; gap: 7px;
+  font-size: 0.67rem; letter-spacing: 0.1em; text-transform: uppercase;
+  color: var(--cream); opacity: 0.8;
+}
+.pick select, .pick input {
+  font: inherit; font-size: 0.8rem; text-transform: none; letter-spacing: 0;
+  padding: 0.3rem 0.6rem; border-radius: 7px; max-width: 16rem;
+  border: 1px solid rgba(0, 0, 0, 0.5);
+  background: #050c18; color: var(--cream);
+}
+.tbox.short { width: 4.2rem; }
+
+.note { margin: 6px 0 0; font-size: 0.74rem; line-height: 1.45; color: var(--cream); opacity: 0.55; }
+.note.warn { color: #ffc98a; opacity: 0.95; }
+
+/* ---- the old switch strip (still used by the pan row) ------------------- */
 
 .strip {
   display: flex; flex-wrap: wrap; align-items: center; gap: 6px 11px;
@@ -293,7 +482,8 @@ body {
 /* ---- the bench below the case ------------------------------------------- */
 
 .desk { display: grid; grid-template-columns: 1.3fr 1fr; gap: 12px; }
-@media (max-width: 900px) { .desk { grid-template-columns: 1fr; } }
+.desk.wide1 { grid-template-columns: 1fr; }
+@media (max-width: 1040px) { .desk { grid-template-columns: 1fr; } }
 
 .panel {
   padding: 11px 14px 12px; border-radius: 12px;
@@ -312,7 +502,7 @@ body {
   gap: 7px 9px; justify-content: start; align-items: center;
 }
 .looprow {
-  display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 9px;
+  display: flex; flex-wrap: wrap; align-items: center; gap: 7px 9px; margin-top: 8px;
 }
 
 .tbox {
@@ -354,9 +544,13 @@ body {
    wrap under it. Left to flex freely, a long part name pushed Remove onto a
    third line and made every row 91px tall. */
 .itext { flex: 1 1 auto; min-width: 0; display: grid; gap: 1px; }
+/* A long part name wraps to a second line rather than being cut off with dots.
+   "bar 40 to the e…" tells nobody which part it is. */
 .item .name {
-  font-weight: 600; color: var(--white);
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-weight: 600; color: var(--white); line-height: 1.25;
+  overflow-wrap: anywhere;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+  overflow: hidden;
 }
 .item .when {
   font-family: Consolas, ui-monospace, monospace; font-size: 0.72rem;

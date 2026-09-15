@@ -57,10 +57,23 @@ export class Player {
        An element connected to a suspended AudioContext stalls: its metadata
        never completes, duration stays at Infinity, and the clock and the
        waveform have nothing to scale against. The song still plays once the
-       context resumes, which is what makes this one easy to miss. */
+       context resumes, which is what makes this one easy to miss.
+
+       AND NEVER WAIT FOREVER. Without the timeout, a song that quietly fails to
+       load leaves the app sitting on "Opening that song…" with the play button
+       greyed out and nothing to tell the person what went wrong — which is how
+       "I couldn't get it to play" looks from the inside. */
     await new Promise((resolve, reject) => {
-      el.addEventListener('loadedmetadata', resolve, { once: true });
-      el.addEventListener('error', () => reject(new Error('That file would not open')), { once: true });
+      const done = () => { clearTimeout(timer); resolve(); };
+      const timer = setTimeout(() => {
+        reject(new Error('The song took too long to open. It may be a format this '
+          + 'app cannot read, or the file may be somewhere it cannot reach.'));
+      }, 15000);
+      el.addEventListener('loadedmetadata', done, { once: true });
+      el.addEventListener('error', () => {
+        clearTimeout(timer);
+        reject(new Error(mediaErrorText(el)));
+      }, { once: true });
     });
 
     // Some files report their length a moment later than their metadata.
@@ -90,6 +103,7 @@ export class Player {
 
   /* ---- Straight playback ------------------------------------------------ */
 
+  /* Every reason a browser refuses to play, in words rather than a code. */
   async play() {
     await resumeSharedAudio();
     if (this.mode === 'practice') {
@@ -98,7 +112,14 @@ export class Player {
       this.onState('playing');
       return;
     }
-    await this.el.play();
+    try {
+      await this.el.play();
+    } catch (err) {
+      /* play() returns a promise that REJECTS, and an unhandled rejection is
+         silent: the button does nothing and the app looks broken with no
+         explanation anywhere. */
+      throw new Error(`This song would not start playing. ${err?.message ?? err}`);
+    }
   }
 
   pause() {
@@ -234,4 +255,14 @@ export class Player {
     this.mode = 'idle'; this.practiceTime = 0; this._practicePlaying = false;
     this._entering = null; this.engineStarts = 0;
   }
+}
+
+/* What a media element's error code actually means, said out loud. */
+function mediaErrorText(el) {
+  const code = el?.error?.code;
+  if (code === 1) return 'Opening that song was stopped before it finished.';
+  if (code === 2) return 'That song could not be read from the disk.';
+  if (code === 3) return 'That song is damaged, or is in a format this app cannot read.';
+  if (code === 4) return 'This app cannot play that kind of file. Try an MP3, an M4A, a WAV or a FLAC.';
+  return 'That file would not open.';
 }

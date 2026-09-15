@@ -1,61 +1,81 @@
-# TVA Player — installing it and keeping it up to date
+# TVA Player
+
+A Windows audio player with the practice controls built in, and a recorder.
 
 ## Getting the installer
 
-Every time I change the app, a fresh Windows installer is built automatically
-and left on that build's own page. To fetch the current one:
+Every change builds a fresh installer automatically and leaves it on that
+build's own page.
 
 1. Go to https://github.com/tedsvoiceacademy/tva-player/actions
    You get a **list** of builds. The installer is not on this list page — it is
    inside one of them.
-2. **Click the blue title of the top entry** to open that build. It is the most
-   recent one, and a green tick beside it means everything passed. (If it has a
-   yellow dot it is still running — wait about two minutes and reload.)
-3. You are now on that build's own page. Scroll all the way to the bottom. Under
-   a heading **Artifacts** there is one row, **TVA-Player-installer**. Click it
-   and it downloads as a zip.
+2. **Click the blue title of the top entry** to open that build. A green tick
+   means everything passed. (A yellow dot means it is still running — wait about
+   three minutes and reload.)
+3. Scroll to the bottom of that page. Under **Artifacts** there is one row,
+   **TVA-Player-installer**. Click it and it downloads as a zip.
 4. Open the zip and pull the `.exe` out of it.
 
-## Installing it, the first time on each computer
+## Installing
 
-1. Double-click the `.exe` you just pulled out of the zip.
-2. **Windows will show a blue box saying "Windows protected your PC".**
-   That is expected and it is not a warning about this app specifically — it is
-   what Windows says about any program that has not paid for a certificate.
-   Click **More info**, then **Run anyway**.
-3. It installs itself and appears in your Start menu as **TVA Player**. There is
-   no Yes/No administrator prompt, because it installs only for you.
+1. Double-click the `.exe`.
+2. **Windows shows a blue box saying "Windows protected your PC".** That is what
+   Windows says about any program without a paid certificate. Click
+   **More info**, then **Run anyway**.
+3. It installs and appears in your Start menu as **TVA Player**. No
+   administrator prompt.
 
-You do this once per computer.
+To update later, download a new installer the same way and run it over the top.
+It keeps all your settings.
 
-**Updating itself is not switched on yet.** That needs a published release, and
-while the app is still being built there is not one. For now, fetch a new
-installer the same way and run it over the top — it replaces what is there and
-keeps your settings. I will say so when the app starts updating itself.
+## What it does
 
-## Making it the app that opens your music
+**Your songs.** Click **Add a folder** and point it at where you keep your
+music. Everything playable inside is listed, including anything you add later.
+Nothing is copied or moved. Search the list, click a song to play it, and the
+rest of the list plays after it. **Play them all** starts at the top. **Save
+this list** keeps what is lined up under a name.
 
-Windows does not let a program make itself the default — you confirm it by hand,
-once. The app has a button that opens the right page in Windows Settings, and
-then shows you a tick beside each kind of file that took.
+**Opening a file directly.** Double-click any MP3, M4A, WAV, FLAC, AAC or OGG in
+File Explorer. Select several and they all play in turn.
 
-## When there is a new version, later on
+**The practice controls.**
 
-Once the app is finished enough to publish properly, it will check for new
-versions itself, download them quietly in the background, tell you when one is
-ready, and put it in place the next time you close the app. It will never
-restart itself in the middle of a lesson.
+| Control | What it does |
+|---|---|
+| Speed | Slows the song down without changing its key |
+| Key | Moves the key without changing the speed |
+| Pan | Turns one side of the recording down |
+| Volume | How loud it plays |
+| Keep voices sounding natural | Stops voices going chipmunky when you move the key |
+| Make the lead quieter | Turns down whatever sits dead centre in the mix |
+| Send one mix to both speakers | For a car stereo that only carries one side |
 
-## Where your loops and settings are kept
+**Repeat a part.** Drag across the waveform, or type the times to the tenth of a
+second and nudge them. Name a part and it is there next time you open that song.
 
-In a folder inside your OneDrive, so the loops you mark on the laptop are there
-on the desktop. The app prints the exact path along the bottom of its window.
+**Record.** Turn the microphone on, watch the level, and record — on its own or
+with the song playing. **Keep the last 2 minutes** saves what the microphone
+already heard, so you never have to have pressed record first. You can also
+record what the computer itself is playing. Takes are kept as WAV files.
 
-Your recordings are kept separately, on the computer that made them, because a
-45-minute lesson is a large file and it should be your choice whether it goes
-into OneDrive.
+**Notes.** Pin a note to a moment in a song and click it later to jump there.
+
+**Click track.** A metronome over the song, with a count-in.
+
+**The tuner** appears while the microphone is on and names the note being sung.
+
+## Where things are kept
+
+Your marked parts, named parts, notes and lists live in a folder inside your
+OneDrive, so they are the same on your laptop and your desktop. The app prints
+the exact path under **Set-up**.
+
+Takes are kept on the computer that made them, in your Music folder, because a
+45-minute lesson is a big file and whether it syncs should be your choice.
 
 ## What never leaves your computer
 
-The songs you open. The app plays them from where they already sit and never
-uploads them anywhere.
+The songs you open. They are played from where they already are and never
+uploaded anywhere.

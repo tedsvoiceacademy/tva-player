@@ -3,6 +3,43 @@
    control and the lead-quieter tail can each be told apart by ear or by maths. */
 import { writeFileSync } from 'node:fs';
 
+/* A REAL MP3, not a WAV with a different name.
+ *
+ * Every check up to now fed the app a generated WAV, and Ted then installed it
+ * and could not get an MP3 to play at all. A WAV is decoded by a different path
+ * inside the browser and streams differently, so testing only with one proved
+ * nothing about the format he actually uses. This encodes properly, with a pure
+ * JavaScript LAME port that is a development dependency only and never ships
+ * inside the app. */
+export async function makeMp3(path, opts = {}) {
+  const { Mp3Encoder } = await import('@breezystack/lamejs');
+  const { seconds = 6, sampleRate = 44100, left = 440, right = 660, shape = false } = opts;
+  const frames = Math.round(seconds * sampleRate);
+  const l = new Int16Array(frames);
+  const r = new Int16Array(frames);
+  for (let i = 0; i < frames; i++) {
+    const t = i / sampleRate;
+    const env = shape
+      ? 0.25 + 0.75 * Math.abs(Math.sin(t * 0.21)) * (0.55 + 0.45 * Math.abs(Math.sin(t * 1.7)))
+      : 1;
+    l[i] = Math.round(Math.sin(2 * Math.PI * left * t) * 0.4 * env * 32767);
+    r[i] = Math.round(Math.sin(2 * Math.PI * right * t) * 0.4 * env * 32767);
+  }
+
+  const encoder = new Mp3Encoder(2, sampleRate, 128);
+  const chunks = [];
+  const BLOCK = 1152;
+  for (let i = 0; i < frames; i += BLOCK) {
+    const buf = encoder.encodeBuffer(l.subarray(i, i + BLOCK), r.subarray(i, i + BLOCK));
+    if (buf.length) chunks.push(Buffer.from(buf));
+  }
+  const tail = encoder.flush();
+  if (tail.length) chunks.push(Buffer.from(tail));
+
+  writeFileSync(path, Buffer.concat(chunks));
+  return path;
+}
+
 export function makeSong(path, {
   seconds = 6, sampleRate = 48000, left = 440, right = 660, shape = false,
 } = {}) {

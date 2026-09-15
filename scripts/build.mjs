@@ -22,9 +22,6 @@ await mkdir(join(DESKTOP, 'dist/renderer/vendor'), { recursive: true });
 
 const shared = { bundle: true, platform: 'neutral', target: 'es2022', logLevel: 'info' };
 
-await esbuild.build({ ...shared, entryPoints: [ENTRY], format: 'cjs',
-  outfile: join(DESKTOP, 'dist/main/practice-core.cjs') });
-
 await esbuild.build({ ...shared, entryPoints: [ENTRY], format: 'esm',
   outfile: join(DESKTOP, 'dist/renderer/practice-core.js') });
 
@@ -47,9 +44,21 @@ if (!stretchSource) {
 }
 await copyFile(stretchSource, join(DESKTOP, 'dist/renderer/vendor/SignalsmithStretch.mjs'));
 
-/* Everything that is already plain JavaScript is copied rather than compiled. */
+/* THE MAIN PROCESS IS BUNDLED, not copied.
+ *
+ * It keeps the packaged app free of node_modules — the property that made the
+ * installer build work at all — while still letting the main process use a
+ * library. Anything it imports is compiled into the one file. `electron` is
+ * the exception: that is provided by the runtime, not by npm. */
+await esbuild.build({
+  entryPoints: [join(DESKTOP, 'src/main/index.cjs')],
+  outfile: join(DESKTOP, 'dist/main/index.cjs'),
+  bundle: true, platform: 'node', target: 'node20', format: 'cjs',
+  external: ['electron'], logLevel: 'info',
+});
+
+/* The preload and the renderer are already plain JavaScript. */
 const { cp } = await import('node:fs/promises');
-await cp(join(DESKTOP, 'src/main'), join(DESKTOP, 'dist/main'), { recursive: true });
 await cp(join(DESKTOP, 'src/preload'), join(DESKTOP, 'dist/preload'), { recursive: true });
 await cp(join(DESKTOP, 'src/renderer'), join(DESKTOP, 'dist/renderer'), { recursive: true });
 

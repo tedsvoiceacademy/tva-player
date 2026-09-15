@@ -48,8 +48,13 @@ jobs:
         with: { node-version: 22, cache: npm }
       - run: npm ci
       - run: npm run test:harness
+      - run: npm run test:harness:control
       - run: npm run build:code -w @tva/desktop
+
+      # The whole app, driven on real Windows: a real MP3 opened, the practice
+      # engine measured, a take recorded from a known tone and read back.
       - run: node scripts/app-harness.mjs
+      - run: node scripts/app-harness.mjs --negative-control
 
       # Build the installer on every push, not only on a tagged release, and
       # leave it attached to the run. Ted can download and install the current

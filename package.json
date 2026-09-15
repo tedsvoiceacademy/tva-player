@@ -21,8 +21,10 @@
     "release": "npm run release -w @tva/desktop"
   },
   "devDependencies": {
+    "@breezystack/lamejs": "^1.2.7",
     "@playwright/test": "^1.63.0",
     "esbuild": "^0.25.0",
+    "music-metadata": "^11.15.0",
     "typescript": "^5.6.0"
   },
   "engines": {

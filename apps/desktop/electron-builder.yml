@@ -24,9 +24,6 @@ fileAssociations:
   - { ext: ogg,  name: OGG audio,   description: Audio file, role: Viewer }
   - { ext: oga,  name: OGA audio,   description: Audio file, role: Viewer }
   - { ext: opus, name: Opus audio,  description: Audio file, role: Viewer }
-  - { ext: wma,  name: WMA audio,   description: Audio file, role: Viewer }
-  - { ext: aiff, name: AIFF audio,  description: Audio file, role: Viewer }
-  - { ext: aif,  name: AIF audio,   description: Audio file, role: Viewer }
 
 win:
   target: [nsis]

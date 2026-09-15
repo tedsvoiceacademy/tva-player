@@ -9,11 +9,11 @@
  *      node scripts/app-harness.mjs --negative-control
  */
 import { _electron as electron } from '@playwright/test';
-import { mkdtemp, rm, readdir, readFile, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, rm, readdir, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { makeSong } from './make-test-song.mjs';
+import { makeSong, makeMp3 } from './make-test-song.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const NEGATIVE = process.argv.includes('--negative-control');
@@ -25,10 +25,14 @@ const check = (name, passed, detail) => {
 };
 
 const work = await mkdtemp(join(tmpdir(), 'tva-player-'));
-const songPath = join(work, 'Test Song.wav');
-makeSong(songPath, { seconds: 6 });
-const extraSongs = [join(work, 'Second.wav'), join(work, 'Third.wav')];
-for (const p of extraSongs) makeSong(p, { seconds: 3 });
+/* A REAL MP3, because that is what Ted opens. Every check here used to run
+   against a generated WAV, and he then installed the app and could not get an
+   MP3 to play — a format the tests had never once loaded. */
+const songPath = join(work, 'Test Song.mp3');
+await makeMp3(songPath, { seconds: 6 });
+const extraSongs = [join(work, 'Second.mp3'), join(work, 'Third.wav')];
+await makeMp3(extraSongs[0], { seconds: 3 });
+makeSong(extraSongs[1], { seconds: 3 });
 
 /* The negative control flips one sign in the audio graph: the right side of the
    lead-quieter tail is added to the left instead of being subtracted from it.
@@ -63,7 +67,29 @@ if (NEGATIVE) {
  *
  * It also keeps each run's settings to itself, so one run cannot open a song
  * that the previous run had already saved a speed for. */
-const userDataDir = join(work, 'user-data');
+const userDataDir = join(work, 'ud');
+
+/* A folder of songs, written into the settings before the app starts, so the
+   library is exercised the way it is on a machine that already has one. */
+const musicDir = join(work, 'Music');
+await mkdir(musicDir, { recursive: true });
+await makeMp3(join(musicDir, 'Shenandoah.mp3'), { seconds: 4 });
+await makeMp3(join(musicDir, 'Danny Boy.mp3'), { seconds: 4 });
+/* Takes go into the work folder, not into the real Music folder. A test must
+   never leave anything behind on the machine that ran it. */
+const takesDir = join(work, 'Takes');
+await mkdir(join(work, 'ud', 'Player Settings'), { recursive: true });
+await writeFile(join(work, 'ud', 'Player Settings', 'settings.json'),
+  JSON.stringify({ folders: [musicDir], recordingsDir: takesDir }, null, 2));
+
+/* A STEADY 440 Hz TONE PLAYED INTO THE MICROPHONE.
+ *
+ * Chromium's built-in fake microphone turned out to be mostly silence with
+ * bursts in it — measured, not assumed — so a take recorded from it has no
+ * pitch to check. Handing Chromium a WAV to play instead gives the recorder a
+ * known answer, which is the only way a recording test means anything. */
+const micFile = join(work, 'mic-input.wav');
+makeSong(micFile, { seconds: 20, left: 440, right: 440 });
 
 const app = await electron.launch({
   args: [
@@ -71,6 +97,11 @@ const app = await electron.launch({
     '--no-sandbox',
     '--autoplay-policy=no-user-gesture-required',
     `--user-data-dir=${userDataDir}`,
+    // Chromium's fake microphone emits a steady 440 Hz tone, which turns the
+    // recorder into something with a right answer rather than a shrug.
+    '--use-fake-device-for-media-stream',
+    '--use-fake-ui-for-media-stream',
+    `--use-file-for-fake-audio-capture=${micFile}`,
     songPath, ...extraSongs,        // exactly how Windows hands over a multi-select
   ],
   env: { ...process.env, ONEDRIVE: '', OneDrive: '', OneDriveConsumer: '', OneDriveCommercial: '' },
@@ -84,7 +115,7 @@ try {
   await page.waitForFunction(
     () => document.getElementById('now-name').textContent !== 'NO SONG OPEN', { timeout: 20000 });
   check('the song named on the command line opens by itself',
-    (await page.textContent('#now-name')).includes('TEST SONG'),
+    (await page.textContent('#now-name')).includes('TEST SONG.MP3'),
     'no click needed — this is what double-clicking in Explorer does');
 
   await page.waitForFunction(() => !document.getElementById('play').disabled, { timeout: 10000 });
@@ -158,7 +189,7 @@ try {
       (await page.inputValue('#loop-a')) === '0:01.0'
         && (await page.inputValue('#loop-b')) === '0:03.5',
       `got ${await page.inputValue('#loop-a')} to ${await page.inputValue('#loop-b')}`);
-    check('marking a part turns looping on by itself',
+    check('marking a part turns repeating on by itself',
       (await page.getAttribute('#loop-on', 'aria-pressed')) === 'true');
 
     await page.click('[data-nudge="a"][data-by="0.1"]');
@@ -289,6 +320,198 @@ try {
     tail.oneSpkLeftHas660 > 0.02 && tail.oneSpkRightHas440 > 0.02,
     'for a car or Bluetooth link that carries only one side');
 
+  console.log('\n--- the start-up message reaches the page ---');
+  {
+    /* THE BUG THAT MADE TED SAY "I couldn't get it to play". The app told the
+       page it was ready only if the page happened to still be loading, and by
+       then that had already happened — so no settings arrived, no library
+       loaded, and a song double-clicked in Explorer was dropped on the floor.
+       The window looked completely normal. Anything that depends on start-up
+       is checked here, because "the window opened" proves nothing. */
+    const footer = await page.textContent('#where');
+    check('the app tells the page where its settings are', footer.includes('Settings kept in'),
+      footer.slice(0, 70));
+    check('and the library it found on start-up is listed',
+      (await page.$$('.raillist .song')).length === 2,
+      `${(await page.$$('.raillist .song')).length} songs in the rail`);
+    const label = await page.textContent('.raillist .song');
+    check('with each song named, not shown as a path',
+      !label.includes('\\') && !label.includes('/'), label);
+
+    await page.fill('#find', 'danny');
+    check('and searchable', (await page.$$('.raillist .song')).length === 1);
+    await page.fill('#find', '');
+  }
+
+  console.log('\n--- one song after another ---');
+  {
+    await page.click('.raillist .song');     // the first in the list
+    await page.waitForFunction(
+      () => !document.getElementById('play').disabled, { timeout: 15000 });
+    check('a song picked from the list opens',
+      (await page.textContent('#now-name')).includes('DANNY'),
+      await page.textContent('#now-name'));
+    check('and the rest of the list is lined up behind it',
+      !(await page.getAttribute('#upnext', 'hidden')),
+      await page.textContent('#upnext'));
+    check('with the next one named',
+      (await page.textContent('#upnext')).includes('Shenandoah'),
+      await page.textContent('#upnext'));
+
+    /* The end of a song has to start the next one, or "play them all" is only
+       a button that plays one song. */
+    const moved = await page.evaluate(async () => {
+      const before = document.getElementById('now-name').textContent;
+      await window.__tvaNext();
+      return { before, after: document.getElementById('now-name').textContent };
+    });
+    check('and reaching the end moves on to it',
+      moved.after !== moved.before && moved.after.includes('SHENANDOAH'),
+      `${moved.before} -> ${moved.after}`);
+
+    // Back to the song the rest of the checks expect.
+    await page.evaluate(() => window.__tvaOpenFirstArg());
+    await page.waitForFunction(
+      () => document.getElementById('now-name').textContent.includes('TEST SONG'),
+      { timeout: 15000 });
+  }
+
+  console.log('\n--- keeping a list ---');
+  {
+    await page.click('#play-all');
+    await page.click('#playlist-save');
+    check('naming a list asks for the name on the page',
+      !(await page.getAttribute('#listnamerow', 'hidden')),
+      'Electron has no prompt() at all — using one would do nothing at all');
+    await page.fill('#listname', 'Sunday set');
+    await page.click('#listname-ok');
+    await page.waitForFunction(
+      () => [...document.getElementById('playlist-pick').options].some((o) => o.value === 'Sunday set'),
+      { timeout: 5000 });
+    check('and the list is kept and offered back', true);
+    check('with the songs that were lined up',
+      (await page.textContent('#msg')).includes('songs as "Sunday set"'),
+      await page.textContent('#msg'));
+
+    // Back to the song the later checks are about.
+    await page.evaluate(() => window.__tvaOpenFirstArg());
+    await page.waitForFunction(
+      () => document.getElementById('now-name').textContent.includes('TEST SONG'),
+      { timeout: 15000 });
+  }
+
+  console.log('\n--- the tabs ---');
+  {
+    for (const [tab, panel] of [['record', 'record'], ['notes', 'notes'], ['click', 'click'], ['loop', 'loop']]) {
+      await page.click(`.tab[data-tab="${tab}"]`);
+      const shown = await page.evaluate(() =>
+        [...document.querySelectorAll('[data-panel]')]
+          .filter((el) => el.getBoundingClientRect().height > 0)
+          .map((el) => el.dataset.panel));
+      check(`only the ${tab} panel shows when its tab is picked`,
+        shown.length === 1 && shown[0] === panel,
+        `showing ${JSON.stringify(shown)}`);
+    }
+  }
+
+  console.log('\n--- notes pinned to a moment ---');
+  {
+    await page.click('.tab[data-tab="notes"]');
+    await page.fill('#notetext', 'breath here');
+    await page.click('#note-add');
+    await page.waitForSelector('#notes .item', { timeout: 5000 });
+    check('a note is pinned and listed',
+      (await page.textContent('#notes .item .name')) === 'breath here');
+    await page.fill('#notetext', '   ');
+    await page.click('#note-add');
+    check('an empty note is refused', (await page.textContent('#msg')).includes('Type what'));
+    await page.click('#notes .item .iacts .chip:last-child');
+    check('and a note can be removed', (await page.$$('#notes .item')).length === 0);
+  }
+
+  console.log('\n--- recording ---');
+  {
+    await page.click('.tab[data-tab="record"]');
+    await page.waitForFunction(
+      () => document.getElementById('mic-pick').options.length > 0, { timeout: 10000 });
+    check('a microphone is offered', true,
+      await page.evaluate(() => document.getElementById('mic-pick').options[0].textContent));
+
+    await page.click('#mic-open');
+    await page.waitForFunction(
+      () => !document.getElementById('rec-start').disabled, { timeout: 15000 });
+    check('turning the microphone on makes recording possible', true);
+
+    // The meter has to move, or a person cannot set their level.
+    await page.waitForFunction(() => {
+      const w = document.getElementById('meter-fill').style.width;
+      return w && parseFloat(w) > 1;
+    }, { timeout: 10000 });
+    check('and the level meter moves with the sound coming in', true);
+
+    await page.click('#rec-start');
+    await page.waitForTimeout(1800);
+    await page.click('#rec-stop');
+    await page.waitForSelector('#takes .item', { timeout: 10000 });
+    check('a take is recorded and listed', (await page.$$('#takes .item')).length >= 1);
+
+    /* What is actually IN the file, not merely that a file exists. Chromium's
+       fake microphone sings a steady 440 Hz, so the take can be checked by
+       reading it back and measuring its pitch — which covers the worklet, the
+       transfer to the main process, the write to disk and the header. */
+    const takeInfo = await page.evaluate(async () => {
+      const list = await window.tva.listRecordings();
+      if (!list.length) return null;
+      const bytes = await (await fetch(list[0].url)).arrayBuffer();
+      /* Decoded at the file's own rate. Resampling a take on the way in would
+         change the very thing being measured. */
+      const rate = new DataView(bytes).getUint32(24, true);
+      const ctx = new OfflineAudioContext({ numberOfChannels: 1, length: 1, sampleRate: rate });
+      const buf = await ctx.decodeAudioData(bytes);
+      const d = buf.getChannelData(0);
+      const from = Math.floor(buf.sampleRate * 0.4);
+      const seg = d.slice(from, from + Math.floor(buf.sampleRate * 0.5));
+      let peak = 0; for (let i = 0; i < seg.length; i++) peak = Math.max(peak, Math.abs(seg[i]));
+      let best = 0, lag = 0;
+      for (let t = Math.floor(buf.sampleRate / 1200); t <= Math.floor(buf.sampleRate / 200); t++) {
+        let acc = 0; for (let i = 0; i + t < seg.length; i++) acc += seg[i] * seg[i + t];
+        if (acc > best) { best = acc; lag = t; }
+      }
+      return { seconds: buf.duration, peak, hz: lag ? buf.sampleRate / lag : 0, name: list[0].name };
+    });
+    check('the take is a real audio file of about the right length',
+      takeInfo && takeInfo.seconds > 1 && takeInfo.seconds < 4,
+      `${takeInfo?.seconds?.toFixed(2)} seconds`);
+    check('and it holds the sound the microphone was hearing',
+      takeInfo && takeInfo.peak > 0.05 && Math.abs(takeInfo.hz - 440) < 12,
+      `peak ${takeInfo?.peak?.toFixed(3)}, pitch ${takeInfo?.hz?.toFixed(1)} Hz against 440`);
+    check('and it is named after the song it was sung against',
+      takeInfo && takeInfo.name.startsWith('Test Song'), takeInfo?.name);
+  }
+
+  console.log('\n--- the tuner ---');
+  {
+    check('the tuner appears once the microphone is on',
+      !(await page.getAttribute('#tuner', 'hidden')) === true
+        || (await page.isVisible('#tuner')));
+    await page.waitForFunction(
+      () => document.getElementById('t-note').textContent !== '\u2014', { timeout: 15000 });
+    const note = await page.textContent('#t-note');
+    check('and it names the note being sung', note === 'A4',
+      `read ${note}; the fake microphone sings 440 Hz, which is A4`);
+  }
+
+  console.log('\n--- the click track ---');
+  {
+    await page.click('.tab[data-tab="click"]');
+    await page.fill('#bpm', '90');
+    await page.click('#click-on');
+    check('the click starts', (await page.getAttribute('#click-on', 'aria-pressed')) === 'true');
+    await page.click('#click-on');
+    check('and stops', (await page.getAttribute('#click-on', 'aria-pressed')) === 'false');
+    await page.click('.tab[data-tab="loop"]');
+  }
+
   console.log('\n--- it all fits on the screen ---');
   {
     /* Ted's first words about the members player were "doesn't all show on the
@@ -354,7 +577,7 @@ try {
     const stored = JSON.parse(await readFile(join(settingsRoot, 'songs', saved[0]), 'utf8'));
     check('and it holds the speed that was set', stored.settings.speed === 0.75,
       `stored ${stored.settings.speed}`);
-    check('and the song it belongs to', stored.songKey.startsWith('test song.wav::'),
+    check('and the song it belongs to', stored.songKey.startsWith('test song.mp3::'),
       stored.songKey);
     check('and which machine wrote it', Boolean(stored.updatedBy));
   }

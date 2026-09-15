@@ -4,3 +4,6 @@ export * from './loop-editing.js';
 export * from './notes.js';
 export * from './store-schema.js';
 export * from './wav.js';
+export * from './yin.js';
+export * from './note.js';
+export * from './metronome.js';

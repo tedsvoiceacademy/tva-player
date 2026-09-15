@@ -10,8 +10,10 @@ const fs = require('node:fs');
 const fsp = require('node:fs/promises');
 const { pathToFileURL, fileURLToPath } = require('node:url');
 
-const core = require('../../dist/main/practice-core.cjs');
+const core = require('@tva/practice-core');
 const { Store, defaultRoot, detectOneDrive } = require('./store.cjs');
+const { Recording, defaultRecordingsDir, repairUnfinished, listRecordings } = require('./recording.cjs');
+const { scanFolder, readTags, songLabel } = require('./library.cjs');
 const { openDefaultAppsSettings, readUserChoices } = require('./default-apps.cjs');
 const { registerShortcuts, KEYS } = require('./shortcuts.cjs');
 
@@ -19,6 +21,8 @@ const RENDERER_DIR = path.join(__dirname, '..', 'renderer');
 
 let win = null;
 let store = null;
+let recording = null;          // the one in progress, if any
+let recordingsDir = null;
 const burst = new core.BurstCollector(250);
 let burstTimer = null;
 
@@ -155,13 +159,16 @@ const MIME_BY_EXT = {
 function handleAppProtocol() {
   protocol.handle('app', async (request) => {
     const url = new URL(request.url);
-    const rel = decodeURIComponent(url.pathname).replace(/^\/+/, '');
+    /* Decoded ONCE. An earlier version decoded the whole path and then decoded
+       the file name again, so any song whose name contained a per-cent sign
+       resolved to a different path and was refused. */
+    const raw = url.pathname.replace(/^\/+/, '');
     const range = request.headers.get('Range');
 
     /* A song the person has actually opened. Only those: the renderer cannot
        name an arbitrary file and have it served. */
-    if (rel.startsWith('song/')) {
-      const target = decodeURIComponent(rel.slice('song/'.length));
+    if (raw.startsWith('song/')) {
+      const target = decodeURIComponent(raw.slice('song/'.length));
       if (!allowedPaths.has(target)) return new Response('Not opened by this app', { status: 403 });
       const type = MIME_BY_EXT[path.extname(target).toLowerCase()] ?? 'application/octet-stream';
       return serveFile(target, range, type);
@@ -169,7 +176,7 @@ function handleAppProtocol() {
 
     // Otherwise it is the page itself, and nothing outside the renderer folder
     // is servable however it is asked for.
-    const target = path.normalize(path.join(RENDERER_DIR, rel));
+    const target = path.normalize(path.join(RENDERER_DIR, decodeURIComponent(raw)));
     if (!target.startsWith(RENDERER_DIR)) return new Response('No', { status: 403 });
     const type = MIME_BY_EXT[path.extname(target).toLowerCase()] ?? 'application/octet-stream';
     return serveFile(target, range, type);
@@ -247,31 +254,67 @@ if (!app.requestSingleInstanceLock()) {
     await store.init();
     const conflicts = await store.sweepConflicts();
 
+    const appSettingsEarly = await store.loadAppSettings();
+    recordingsDir = appSettingsEarly.recordingsDir || defaultRecordingsDir();
+    /* A lesson interrupted by the app closing leaves a file whose header says
+       it is empty. The length is recoverable from the file itself. */
+    const repaired = await repairUnfinished(recordingsDir);
+
     await createWindow();
     setJumpList();
 
-    const appSettings = await store.loadAppSettings();
+    const appSettings = appSettingsEarly;
     const shortcutResult = registerShortcuts(appSettings.shortcuts ?? {}, (id) => {
       if (win) win.webContents.send('shortcut', id);
     });
 
+    let openedFromArgv = false;
     const tellRenderer = () => {
       win.webContents.send('app:ready', {
         settingsRoot: store.root,
         oneDrive: detectOneDrive(),
         machine: store.machine,
         conflicts,
+        repaired,
+        recordingsDir,
         shortcutsTaken: shortcutResult.taken,
         version: app.getVersion(),
       });
-      queueOpen(core.filterAudioArgs(process.argv));
+      if (!openedFromArgv) {
+        openedFromArgv = true;
+        queueOpen(core.filterAudioArgs(process.argv));
+      }
     };
 
-    /* loadURL resolves after the page has finished loading, so waiting for
-       did-finish-load here would usually wait for an event that has already
-       happened. Send now if it has, and listen only if it has not. */
-    if (win.webContents.isLoading()) win.webContents.once('did-finish-load', tellRenderer);
-    else tellRenderer();
+    /* SEND IT NOW. createWindow() already awaited loadURL, and loadURL resolves
+       when the page has finished loading — so by here the page is up and its
+       script is listening.
+     *
+     * An earlier version checked isLoading() first and waited for
+     * did-finish-load if it was true. That event had ALREADY fired, so the
+     * listener never ran: no settings arrived, no library loaded, and a song
+     * double-clicked in Explorer was silently dropped. The window looked
+     * perfectly normal and did nothing, which is what "I couldn't get it to
+     * play" looks like from the inside.
+     *
+     * It is also sent again after any later load, so that a page which reloads
+     * gets its state back rather than coming up empty. */
+    tellRenderer();
+    win.webContents.on('did-finish-load', tellRenderer);
+  }).catch((err) => {
+    /* A failure anywhere in start-up used to leave a window that looked fine
+       and did nothing at all: no song would open, no settings would load, and
+       nothing said why. Now it says so, in the window and on the console. */
+    console.error('Start-up failed:', err);
+    const text = `The app did not finish starting up. ${err?.message ?? err}`;
+    if (win && !win.isDestroyed()) {
+      win.webContents.send('app:failed', text);
+      win.webContents.executeJavaScript(
+        `document.getElementById('msg') && (document.getElementById('msg').textContent = ${JSON.stringify(text)})`,
+      ).catch(() => {});
+    } else {
+      dialog.showErrorBox('TVA Player', text);
+    }
   });
 
   app.on('window-all-closed', () => app.quit());
@@ -300,3 +343,114 @@ ipcMain.handle('defaults:open', () => openDefaultAppsSettings(app.getName()));
 ipcMain.handle('defaults:read', () => readUserChoices());
 ipcMain.handle('shortcuts:list', () => KEYS.map(({ id, label }) => ({ id, label })));
 ipcMain.handle('folder:reveal', (_e, target) => shell.showItemInFolder(String(target)));
+
+
+/* ---- The library -------------------------------------------------------- */
+
+ipcMain.handle('library:addFolder', async () => {
+  const result = await dialog.showOpenDialog(win, {
+    title: 'Choose a folder of songs',
+    properties: ['openDirectory'],
+  });
+  if (result.canceled || !result.filePaths[0]) return null;
+
+  const settings = await store.loadAppSettings();
+  const folders = Array.isArray(settings.folders) ? settings.folders : [];
+  if (!folders.includes(result.filePaths[0])) folders.push(result.filePaths[0]);
+  await store.saveAppSettings({ ...settings, folders });
+  return result.filePaths[0];
+});
+
+ipcMain.handle('library:removeFolder', async (_e, folder) => {
+  const settings = await store.loadAppSettings();
+  const folders = (settings.folders ?? []).filter((f) => f !== folder);
+  await store.saveAppSettings({ ...settings, folders });
+  return folders;
+});
+
+ipcMain.handle('library:scan', async () => {
+  const settings = await store.loadAppSettings();
+  const folders = Array.isArray(settings.folders) ? settings.folders : [];
+  const songs = [];
+  for (const folder of folders) {
+    for (const song of await scanFolder(folder)) {
+      songs.push({ ...song, root: folder, url: encodePathForUrl(song.path) });
+      allowedPaths.add(song.path);     // it is in a folder he pointed us at
+    }
+  }
+  return { folders, songs };
+});
+
+/* Tags for the songs on screen only. Reading a tag opens the file, and a folder
+   of two thousand songs should appear at once rather than after all of them
+   have been opened. */
+ipcMain.handle('library:tags', async (_e, paths) => {
+  const wanted = (Array.isArray(paths) ? paths : []).slice(0, 200)
+    .filter((p) => allowedPaths.has(p))
+    .map((p) => ({ path: p, name: path.basename(p) }));
+  const tags = await readTags(wanted);
+  return tags.map((t) => ({ ...t, label: songLabel({ name: path.basename(t.path) }, t) }));
+});
+
+/* ---- Recording ---------------------------------------------------------- */
+
+ipcMain.handle('record:start', async (_e, { name, sampleRate, channels }) => {
+  if (recording) return { error: 'A recording is already running.' };
+  recording = new Recording(recordingsDir, {
+    name,
+    sampleRate: Number(sampleRate) || 48000,
+    channels: Number(channels) === 2 ? 2 : 1,
+  });
+  try {
+    const filePath = await recording.open();
+    return { path: filePath };
+  } catch (err) {
+    recording = null;
+    return { error: `The recording could not be started. ${err.message}` };
+  }
+});
+
+/* The samples arrive as a transferred ArrayBuffer, so nothing is copied on the
+   way across and nothing accumulates on either side. */
+ipcMain.on('record:chunk', async (_e, buffer) => {
+  if (!recording) return;
+  try { await recording.append(Buffer.from(buffer)); } catch { /* disk full, handled on stop */ }
+});
+
+ipcMain.handle('record:stop', async () => {
+  if (!recording) return null;
+  const done = await recording.finish();
+  recording = null;
+  if (done) allowedPaths.add(done.path);
+  return done ? { ...done, url: encodePathForUrl(done.path) } : null;
+});
+
+ipcMain.handle('record:list', async () => {
+  const takes = await listRecordings(recordingsDir);
+  for (const take of takes) allowedPaths.add(take.path);
+  return takes.map((t) => ({ ...t, url: encodePathForUrl(t.path) }));
+});
+
+ipcMain.handle('record:remove', async (_e, target) => {
+  const takes = await listRecordings(recordingsDir);
+  if (!takes.some((t) => t.path === target)) return false;
+  await shell.trashItem(target);      // the recycle bin, not gone for good
+  return true;
+});
+
+ipcMain.handle('record:saveMixed', async (_e, { suggestedName, bytes }) => {
+  const result = await dialog.showSaveDialog(win, {
+    title: 'Save the mixed file',
+    defaultPath: path.join(recordingsDir, `${suggestedName ?? 'Mixed'}.wav`),
+    filters: [{ name: 'WAV audio', extensions: ['wav'] }],
+  });
+  if (result.canceled || !result.filePath) return null;
+  await fsp.writeFile(result.filePath, Buffer.from(bytes));
+  allowedPaths.add(result.filePath);
+  return result.filePath;
+});
+
+ipcMain.handle('record:folder', async () => {
+  await shell.openPath(recordingsDir);
+  return recordingsDir;
+});

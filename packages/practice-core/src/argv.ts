@@ -17,10 +17,17 @@
  *    into one queue. See collectBurst.
  */
 
-/** Extensions the app opens. Kept here so the installer, the file picker and
- *  the argument filter cannot drift apart. */
+/* Extensions the app opens. Kept here so the installer, the file picker and the
+ * argument filter cannot drift apart.
+ *
+ * WMA, AIFF and AIF are deliberately absent. Asked directly, Electron reports
+ * audio/x-ms-wma and audio/aiff as formats it cannot play, and an earlier
+ * version registered them anyway — so double-clicking one would have opened the
+ * app on a song it could never sound. Claiming a file type the app cannot play
+ * is worse than not claiming it, because Windows then sends every one of them
+ * here. */
 export const AUDIO_EXTENSIONS = [
-  'mp3', 'm4a', 'wav', 'flac', 'aac', 'ogg', 'oga', 'opus', 'wma', 'aiff', 'aif',
+  'mp3', 'm4a', 'wav', 'flac', 'aac', 'ogg', 'oga', 'opus',
 ] as const;
 
 const EXT_SET = new Set<string>(AUDIO_EXTENSIONS);

@@ -156,6 +156,22 @@ const MIME_BY_EXT = {
   '.wma': 'audio/x-ms-wma', '.aiff': 'audio/aiff', '.aif': 'audio/aiff',
 };
 
+/* Capturing what the computer itself is playing.
+ *
+ * Chromium will only hand over system audio as part of a screen share, and only
+ * when the app answers this request with audio: 'loopback'. WITHOUT THIS
+ * HANDLER the button in the Record tab fails every time — the page asks and
+ * nothing answers. It was missing until a check went looking for it.
+ *
+ * 'loopback' is WASAPI loopback on Windows: the whole system mix, with no
+ * virtual audio driver to install and no native code. */
+function handleSystemAudio() {
+  session.defaultSession.setDisplayMediaRequestHandler((request, callback) => {
+    if (!win || win.isDestroyed()) { callback({}); return; }
+    callback({ video: win, audio: 'loopback' });
+  }, { useSystemPicker: false });
+}
+
 function handleAppProtocol() {
   protocol.handle('app', async (request) => {
     const url = new URL(request.url);
@@ -249,6 +265,7 @@ if (!app.requestSingleInstanceLock()) {
   app.whenReady().then(async () => {
     applyContentSecurityPolicy();
     handleAppProtocol();
+    handleSystemAudio();
 
     store = new Store(defaultRoot(app.getPath('userData')));
     await store.init();

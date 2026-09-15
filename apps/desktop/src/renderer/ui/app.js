@@ -688,6 +688,10 @@ window.addEventListener('resize', () => { drawWave(); });
 window.__tvaMode = () => player.mode;
 window.__tvaGraph = () => player.graph;
 window.__tvaNext = () => playNext(1);
+/* Used only by the checks, to reach the "this song is too long for the speed
+   control" path without encoding half an hour of audio first. It sets the same
+   variable the real length sets, so the refusal it produces is the real one. */
+window.__tvaFakeDuration = (seconds) => { duration = seconds; };
 window.__tvaOpenFirstArg = () => (firstArgSong ? openSong(firstArgSong) : null);
 window.__tvaEngineStarts = () => player.engineStarts;
 window.__tvaSpeed = () => settings.speed;

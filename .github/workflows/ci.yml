@@ -38,8 +38,20 @@ jobs:
       - name: And prove those checks can fail
         run: xvfb-run -a node scripts/app-harness.mjs --negative-control
 
-  # The same end-to-end run on real Windows, which is the only place the file
-  # associations, the registry and the installer actually mean anything.
+      # THE PACKAGED APP, which is not the same thing as the source folder.
+      # Packaging puts everything in an asar archive and changes how files are
+      # found inside it, so the protocol that serves the page, the worklet
+      # loaded by URL and the copied-in stretch library all have to be proved
+      # again on the other side of it.
+      - name: Package it
+        run: npx electron-builder --linux dir --publish never
+        working-directory: apps/desktop
+
+      - name: The packaged app, launched and driven
+        run: xvfb-run -a node scripts/installed-harness.mjs
+
+  # The same on real Windows, and then the installed app — which is the only
+  # thing Ted ever actually runs.
   windows:
     runs-on: windows-latest
     steps:
@@ -47,25 +59,42 @@ jobs:
       - uses: actions/setup-node@v4
         with: { node-version: 22, cache: npm }
       - run: npm ci
+
       - run: npm run test:harness
       - run: npm run test:harness:control
       - run: npm run build:code -w @tva/desktop
 
-      # The whole app, driven on real Windows: a real MP3 opened, the practice
-      # engine measured, a take recorded from a known tone and read back.
-      - run: node scripts/app-harness.mjs
-      - run: node scripts/app-harness.mjs --negative-control
+      - name: The app, launched and driven
+        run: node scripts/app-harness.mjs
+      - name: And prove those checks can fail
+        run: node scripts/app-harness.mjs --negative-control
 
-      # Build the installer on every push, not only on a tagged release, and
-      # leave it attached to the run. Ted can download and install the current
-      # state of the app at any time without anybody tagging anything — which
-      # matters because the things only his own machines can prove (the
-      # SmartScreen path, the file associations, double-clicking a song in
-      # Explorer) are the ones nothing here can check.
       - name: Build the installer
         run: npm run build -w @tva/desktop
 
-      - name: Attach it to this run
+      # RUN THE INSTALLER. It had never once been run: CI built it and nobody
+      # installed it, so an installer that failed would have shipped unnoticed.
+      - name: Install it, the way Ted does
+        shell: pwsh
+        run: |
+          $setup = Get-ChildItem release -Filter '*Setup*.exe' | Select-Object -First 1
+          if (-not $setup) { throw 'No installer was produced.' }
+          Write-Host "Running $($setup.FullName)"
+          Start-Process -FilePath $setup.FullName -ArgumentList '/S' -Wait
+          $exe = Join-Path $env:LOCALAPPDATA 'Programs\tva-player\TVA Player.exe'
+          if (-not (Test-Path $exe)) {
+            Get-ChildItem (Join-Path $env:LOCALAPPDATA 'Programs') -Recurse -Filter '*.exe' |
+              Select-Object -First 20 | ForEach-Object { Write-Host $_.FullName }
+            throw "The installer ran but $exe is not there."
+          }
+          Write-Host "Installed at $exe"
+          "TVA_EXE=$exe" | Out-File -FilePath $env:GITHUB_ENV -Append
+
+      - name: The INSTALLED app, launched and driven
+        run: node scripts/installed-harness.mjs "$env:TVA_EXE"
+        shell: pwsh
+
+      - name: Attach the installer to this run
         uses: actions/upload-artifact@v4
         with:
           name: TVA-Player-installer

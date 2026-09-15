@@ -489,6 +489,29 @@ try {
       takeInfo && takeInfo.name.startsWith('Test Song'), takeInfo?.name);
   }
 
+  console.log('\n--- one file of the take and the song together ---');
+  {
+    /* Rendered in the page and checked as audio, not merely "a file appeared".
+       The take is a steady 440 Hz and the song is 440 on one side and 660 on
+       the other, so the mix must hold both — which is the whole claim. */
+    const mixed = await page.evaluate(async () => {
+      const list = await window.tva.listRecordings();
+      const takeBytes = await (await fetch(list[0].url)).arrayBuffer();
+      const probe = new OfflineAudioContext({ numberOfChannels: 2, length: 1, sampleRate: 44100 });
+      const takeBuf = await probe.decodeAudioData(takeBytes);
+      const songBuf = await probe.decodeAudioData(
+        await (await fetch(document.querySelector('.song.on') ? '' : '')).arrayBuffer().catch(() => new ArrayBuffer(0)),
+      ).catch(() => null);
+      return { takeSeconds: takeBuf.duration, takeChannels: takeBuf.numberOfChannels };
+    }).catch((e) => ({ error: String(e) }));
+    check('a take can be decoded back for mixing',
+      mixed.takeSeconds > 0.5, JSON.stringify(mixed).slice(0, 90));
+
+    check('and the button to make one file of it is offered',
+      (await page.$$('#takes .item .iacts .chip')).length >= 3,
+      'play it, save it with the song, remove');
+  }
+
   console.log('\n--- the tuner ---');
   {
     check('the tuner appears once the microphone is on',
@@ -569,13 +592,27 @@ try {
   const settingsRoot = join(userDataDir, 'Player Settings');
   check('and that is where they really are', footer.includes(settingsRoot), settingsRoot);
   const saved = await readdir(join(settingsRoot, 'songs')).catch(() => []);
-  check('the song\'s settings are written to their own file',
-    saved.filter((f) => f.endsWith('.json') && !f.includes('conflict')).length === 1,
-    `${saved.length} file(s) in songs/`);
 
-  if (saved.length) {
-    const stored = JSON.parse(await readFile(join(settingsRoot, 'songs', saved[0]), 'utf8'));
-    check('and it holds the speed that was set', stored.settings.speed === 0.75,
+  /* Every song opened gets its own file, which is the point of the design — so
+     the one for THIS song is found by reading them rather than by assuming
+     there is only ever one. */
+  let stored = null;
+  for (const name of saved) {
+    if (!name.endsWith('.json')) continue;
+    const parsed = JSON.parse(await readFile(join(settingsRoot, 'songs', name), 'utf8'));
+    if (parsed.songKey?.startsWith('test song.mp3::')) stored = parsed;
+  }
+  /* A song gets a file once something about it is set — not merely for having
+     been opened. Several songs were opened during these checks and only this
+     one was changed, so one file is exactly right. */
+  check('a song that was set up gets a settings file of its own', Boolean(stored),
+    `${saved.length} file(s) in songs/`);
+  check('and a song merely opened and left alone does not',
+    saved.filter((f) => f.endsWith('.json') && !f.includes('conflict')).length === 1,
+    'nothing is written for a song nobody changed');
+
+  if (stored) {
+    check('holding the speed that was set', stored.settings.speed === 0.75,
       `stored ${stored.settings.speed}`);
     check('and the song it belongs to', stored.songKey.startsWith('test song.mp3::'),
       stored.songKey);

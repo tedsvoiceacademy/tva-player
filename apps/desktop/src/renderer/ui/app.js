@@ -15,6 +15,7 @@ import {
   emptySongFile, xToTime, dragToLoopRegion, isClickNotDrag,
   formatTime, parseTime, applyLoopEdit, nudgeLoop, MAX_SECTIONS,
   sanitizeNotes, addNote, detectPitchYin, noteFromHz,
+  wavHeader, floatToInt16, interleave,
 } from '../practice-core.js';
 
 const $ = (id) => document.getElementById(id);
@@ -671,6 +672,7 @@ window.tva.onReady(async (info) => {
       + `${info.shortcutsTaken.join(', ')}.`);
   }
   window.tva.loadSettings().then((s) => {
+    if (Number.isFinite(s?.latencyMs)) $('latency').value = String(s.latencyMs);
     if (s?.oneSpeaker) {
       $('onespk').checked = true;
       player.setTail({ leadQuieter: false, oneSpeaker: true });
@@ -957,6 +959,11 @@ async function refreshTakes() {
     play.type = 'button'; play.className = 'chip'; play.textContent = 'Play it';
     play.addEventListener('click', () => playTake(take));
 
+    const mix = document.createElement('button');
+    mix.type = 'button'; mix.className = 'chip'; mix.textContent = 'Save it with the song';
+    mix.title = 'Make one file of this take and the song together, to send to somebody';
+    mix.addEventListener('click', () => saveMixed(take, mix));
+
     const drop = document.createElement('button');
     drop.type = 'button'; drop.className = 'chip'; drop.textContent = 'Remove';
     drop.addEventListener('click', async () => {
@@ -965,7 +972,7 @@ async function refreshTakes() {
       await refreshTakes();
     });
 
-    acts.append(play, drop);
+    acts.append(play, mix, drop);
     row.append(left, acts);
     host.append(row);
   }
@@ -1243,4 +1250,76 @@ $('playlist-pick').addEventListener('change', async (e) => {
   say(`Playing "${name}" — ${songs.length} songs.`);
   await playFrom(songs, 0);
   await player.play().catch(() => {});
+});
+
+
+/* ========================================================================
+   ONE FILE OF THE TAKE AND THE SONG TOGETHER
+   ======================================================================== */
+
+/* The take and the song are kept apart, which is what lets either be changed
+   afterwards. This makes a single file of the two for handing to somebody,
+   without touching either original.
+ *
+ * The take is shifted back by however long the microphone takes to reach the
+ * computer, so it sits where it was actually sung rather than a little late. */
+async function saveMixed(take, button) {
+  if (!song) { say('Open the song this take was sung against first.'); return; }
+  const was = button.textContent;
+  button.disabled = true;
+  button.textContent = 'Mixing…';
+  try {
+    const rate = player.ctx.sampleRate;
+    const [takeBytes, songBytes] = await Promise.all([
+      (await fetch(take.url)).arrayBuffer(),
+      (await fetch(song.url)).arrayBuffer(),
+    ]);
+
+    // One context for the render, at the rate everything else is running at.
+    const probe = new OfflineAudioContext({ numberOfChannels: 2, length: 1, sampleRate: rate });
+    const takeBuf = await probe.decodeAudioData(takeBytes);
+    const songBuf = await probe.decodeAudioData(songBytes);
+
+    const shiftSec = Math.max(0, Number($('latency').value) || 0) / 1000;
+    const length = Math.max(songBuf.length, takeBuf.length);
+    const ctx = new OfflineAudioContext({ numberOfChannels: 2, length, sampleRate: rate });
+
+    const songSrc = ctx.createBufferSource(); songSrc.buffer = songBuf;
+    const songVol = ctx.createGain(); songVol.gain.value = 0.8;
+    songSrc.connect(songVol).connect(ctx.destination);
+    songSrc.start(0);
+
+    const takeSrc = ctx.createBufferSource(); takeSrc.buffer = takeBuf;
+    const takeVol = ctx.createGain(); takeVol.gain.value = 1;
+    takeSrc.connect(takeVol).connect(ctx.destination);
+    // Shifting the take EARLIER means skipping its first moments, because a
+    // source cannot start before the beginning of the file.
+    takeSrc.start(0, shiftSec);
+
+    const mixed = await ctx.startRendering();
+    const channels = [];
+    for (let c = 0; c < mixed.numberOfChannels; c++) channels.push(mixed.getChannelData(c));
+    const pcm = floatToInt16(interleave(channels));
+    const header = wavHeader(rate, channels.length, pcm.byteLength);
+
+    const file = new Uint8Array(header.length + pcm.byteLength);
+    file.set(header, 0);
+    file.set(new Uint8Array(pcm.buffer), header.length);
+
+    const saved = await window.tva.saveMixed({
+      suggestedName: `${take.name} with the song`,
+      bytes: file,
+    });
+    say(saved ? `Saved as ${saved}.` : 'Nothing was saved.');
+  } catch (err) {
+    say(`That could not be mixed. ${err?.message ?? err}`);
+  } finally {
+    button.disabled = false;
+    button.textContent = was;
+  }
+}
+
+$('latency').addEventListener('change', async (e) => {
+  const settings = await window.tva.loadSettings();
+  await window.tva.saveSettings({ ...settings, latencyMs: Number(e.target.value) || 0 });
 });

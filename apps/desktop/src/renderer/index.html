@@ -227,6 +227,14 @@
           </div>
           <p class="note" id="mic-warning" hidden></p>
           <div class="looprow">
+            <label class="pick"><span>Line takes up by</span>
+              <input type="number" id="latency" class="tbox short" min="-500" max="500" step="5" value="0" aria-label="Line takes up by, in milliseconds"/>
+            </label>
+            <span class="note">Your voice reaches the computer a little after you sing it.
+              If a take sits late against the song, put the delay in here in thousandths
+              of a second and it is shifted back when it is saved.</span>
+          </div>
+          <div class="looprow">
             <button type="button" id="rec-system" class="chip">Record what the computer is playing instead</button>
             <span class="note">Windows shows its screen-sharing bar while this runs. That is normal.</span>
           </div>

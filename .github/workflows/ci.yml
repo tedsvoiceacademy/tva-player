@@ -231,21 +231,57 @@ jobs:
       # A rolling pre-release rather than a version tag: this is "the newest
       # build", not a version anybody is depending on, and the download address
       # has to stay the same for a bookmark to be worth making.
+      # NOT A PRE-RELEASE. /releases/latest resolves to the newest release that
+      # is NOT marked pre-release, so marking it made the very address these
+      # files exist for return 404 — while the release page itself looked
+      # perfectly fine. Found by asking the link rather than by reading about it.
       - name: Put them where one tap reaches them
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           NOTES="Built from ${GITHUB_SHA::7}. Every check passed.
-          
+
           **Phone:** tap **TVA-Player.apk** below. Android asks once whether to allow
           installing from this source — say yes, then tap the download again.
-          
+
           **Windows:** download **TVA-Player-Setup.exe** and run it over the top of
           what you have. Your settings stay."
           if gh release view latest >/dev/null 2>&1; then
-            gh release edit latest --title "Latest build" --notes "$NOTES" --prerelease
+            gh release edit latest --title "Latest build" --notes "$NOTES" \
+              --prerelease=false --latest
             gh release upload latest out/TVA-Player.apk out/TVA-Player-Setup.exe --clobber
           else
             gh release create latest out/TVA-Player.apk out/TVA-Player-Setup.exe \
-              --title "Latest build" --notes "$NOTES" --prerelease
+              --title "Latest build" --notes "$NOTES" --latest
           fi
+
+      # ASK THE LINK. The whole point of a release is one address that hands over
+      # the app, and the first one built returned 404 at exactly that address
+      # because of a flag — so the build now downloads its own links and looks at
+      # the first two bytes. An APK is a zip and begins PK; a Windows program
+      # begins MZ. Anything else and this fails rather than being sent to
+      # somebody to find out for themselves.
+      - name: Prove the links really hand over the app
+        run: |
+          base="https://github.com/${GITHUB_REPOSITORY}/releases/latest/download"
+          fail=0
+          for pair in "TVA-Player.apk:PK" "TVA-Player-Setup.exe:MZ"; do
+            name="${pair%%:*}"; want="${pair##*:}"
+            got=""
+            for attempt in 1 2 3 4 5; do
+              code=$(curl -sIL -o /dev/null -w '%{http_code}' "$base/$name" || echo 000)
+              if [ "$code" = "200" ]; then
+                got=$(curl -sL --range 0-1 "$base/$name" | head -c 2)
+                break
+              fi
+              echo "$name answered $code, waiting..."
+              sleep 6
+            done
+            if [ "$got" = "$want" ]; then
+              echo "ok  $name is served from $base and starts $want"
+            else
+              echo "FAIL $name at $base/$name gave '"'"'$got'"'"', wanted '"'"'$want'"'"'"
+              fail=1
+            fi
+          done
+          [ "$fail" = "0" ]

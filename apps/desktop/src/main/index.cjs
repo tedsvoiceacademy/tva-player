@@ -21,7 +21,7 @@ const RENDERER_DIR = path.join(__dirname, '..', 'renderer');
 
 let win = null;
 let store = null;
-let recording = null;          // the one in progress, if any
+let recording = null;          // the take in progress: a Map of key -> Recording
 let recordingsDir = null;
 const burst = new core.BurstCollector(250);
 let burstTimer = null;
@@ -425,35 +425,73 @@ ipcMain.handle('library:tags', async (_e, paths) => {
 
 /* ---- Recording ---------------------------------------------------------- */
 
-ipcMain.handle('record:start', async (_e, { name, sampleRate, channels }) => {
+/* ONE TAKE CAN BE SEVERAL FILES.
+ *
+ * An interface with four microphone inputs gives four signals at once, and Ted
+ * wants each singer's own file as well as a mix he can listen back to — so a
+ * take is a SET of recordings sharing one name and one timestamp, rather than
+ * one recording. With a single microphone the set holds one file and nothing
+ * about the result differs from before.
+ *
+ * They are opened together and finished together. A set where one file failed
+ * to open is no good to anybody, so the ones that did open are closed again
+ * rather than left running against a half-started take.
+ */
+ipcMain.handle('record:start', async (_e, { name, sampleRate, tracks }) => {
   if (recording) return { error: 'A recording is already running.' };
-  recording = new Recording(recordingsDir, {
-    name,
-    sampleRate: Number(sampleRate) || 48000,
-    channels: Number(channels) === 2 ? 2 : 1,
-  });
+  const wanted = Array.isArray(tracks) && tracks.length
+    ? tracks.slice(0, 9)
+    : [{ key: 'mic1', suffix: '' }];
+  const at = new Date();
+  const set = new Map();
   try {
-    const filePath = await recording.open();
-    return { path: filePath };
+    for (const track of wanted) {
+      const one = new Recording(recordingsDir, {
+        name,
+        sampleRate: Number(sampleRate) || 48000,
+        /* One channel per file, except what the computer itself is playing:
+           that arrives as one stereo signal and stays one. */
+        channels: Number(track.channels) === 2 ? 2 : 1,
+        suffix: String(track.suffix ?? ''),
+        at,
+      });
+      await one.open();
+      set.set(String(track.key), one);
+    }
   } catch (err) {
-    recording = null;
+    for (const one of set.values()) { try { await one.finish(); } catch {} }
     return { error: `The recording could not be started. ${err.message}` };
   }
+  recording = set;
+  const paths = {};
+  for (const [key, one] of set) paths[key] = one.filePath;
+  return { paths, path: set.values().next().value.filePath };
 });
 
 /* The samples arrive as a transferred ArrayBuffer, so nothing is copied on the
-   way across and nothing accumulates on either side. */
-ipcMain.on('record:chunk', async (_e, buffer) => {
-  if (!recording) return;
-  try { await recording.append(Buffer.from(buffer)); } catch { /* disk full, handled on stop */ }
+   way across and nothing accumulates on either side. The key says which
+   microphone's file they belong in. */
+ipcMain.on('record:chunk', async (_e, key, buffer) => {
+  const one = recording?.get(String(key));
+  if (!one) return;
+  try { await one.append(Buffer.from(buffer)); } catch { /* disk full, handled on stop */ }
 });
 
 ipcMain.handle('record:stop', async () => {
   if (!recording) return null;
-  const done = await recording.finish();
+  const set = recording;
   recording = null;
-  if (done) allowedPaths.add(done.path);
-  return done ? { ...done, url: encodePathForUrl(done.path) } : null;
+  const done = [];
+  for (const one of set.values()) {
+    const finished = await one.finish();
+    if (!finished) continue;
+    allowedPaths.add(finished.path);
+    done.push({ ...finished, url: encodePathForUrl(finished.path) });
+  }
+  if (!done.length) return null;
+  /* The first entry is also returned flat, because everything that records one
+     microphone — which is most of the app — wants one take back. */
+  return { ...done[0], takes: done };
 });
 
 ipcMain.handle('record:list', async () => {

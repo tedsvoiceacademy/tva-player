@@ -44,86 +44,114 @@ await makeMp3(droppedPath, { seconds: 3 });
 const notAudioPath = join(work, 'notes.txt');
 await writeFile(notAudioPath, 'not a song');
 
-/* The negative control flips one sign in the audio graph: the right side of the
-   lead-quieter tail is added to the left instead of being subtracted from it.
-   Nothing throws, the song still plays, and the only way to notice is to
-   measure what comes out — which is exactly what the checks below do, and
-   exactly why they measure rather than read the source. If they do not go red
-   here, they are not watching anything.
+/* ---- the negative controls ----------------------------------------------
  *
- * (The first control tried here was removing the Content-Length header, which
- * had caused a real bug — the clock stuck at 0:00. It turned nothing red,
- * because the wait for a late-arriving length covers a short file on its own.
- * A control that cannot fail is the thing this whole idea exists to prevent,
- * so it was replaced rather than kept for the story.) */
-const graphPath = join(ROOT, 'apps/desktop/dist/renderer/audio/graph.js');
-const original = await readFile(graphPath, 'utf8');
-if (NEGATIVE) {
-  const broken = original.replace(
-    'midR.gain.value = -MIDDLE_CANCEL_GAIN;',
-    'midR.gain.value = MIDDLE_CANCEL_GAIN;');
-  if (broken === original) { console.error('negative control did not apply'); process.exit(1); }
-  await writeFile(graphPath, broken);
+ * Six deliberate breakages, each one a mistake that leaves the app looking
+ * entirely normal. A harness that cannot fail is not evidence, and the only way
+ * to know these checks are watching anything is to break the thing they watch
+ * and see them go red.
+ *
+ * THEY ARE STAGED AND WRITTEN TOGETHER, and that is not tidiness. Applied one
+ * at a time, a control whose text has moved exits the run — leaving the ones
+ * before it still broken in dist/. The next run then tests a build nobody
+ * intended, quietly, and the giveaway is a control that "does not apply"
+ * because the file was already broken. That happened; this is the fix.
+ */
+const mutations = [];
+async function control(relative, from, to, what) {
+  const target = join(ROOT, relative);
+  /* TWO CONTROLS CAN LIVE IN ONE FILE, so the second builds on the first rather
+     than on what is on disk. Written independently they both looked right and
+     the later write silently undid the earlier one — the lead-quieter check
+     went green in the control run, which is precisely the failure this whole
+     idea exists to catch. */
+  const already = mutations.find((m) => m.target === target);
+  const original = already ? already.original : await readFile(target, 'utf8');
+  const from_ = already ? already.broken : original;
+  const broken = from_.replace(from, to);
+  const applies = broken !== from_;
+  if (already) {
+    already.broken = broken;
+    already.applies = already.applies && applies;
+    already.what += `, ${what}`;
+  } else {
+    mutations.push({ target, original, broken, what, applies });
+  }
+  if (!applies) {
+    /* Recorded against the file, so the message below names which one moved. */
+    const entry = already ?? mutations.at(-1);
+    entry.applies = false;
+    entry.what = already ? entry.what : what;
+  }
+  return target;
 }
 
-/* A SECOND CONTROL, for the picture rather than the sound. The graph flip above
-   cannot reach the waveform, so the stereo check would pass whatever happened.
-   This one draws the lower half of the wave from the LEFT channel — which is
-   precisely the mono-looking picture Ted asked to be rid of, and it looks
-   entirely reasonable on screen. */
-const uiPath = join(ROOT, 'apps/desktop/dist/renderer/ui/app.js');
-const uiOriginal = await readFile(uiPath, 'utf8');
-if (NEGATIVE) {
-  const broken = uiOriginal.replace('{ data: peaks.right, mid: h * 0.73',
-    '{ data: peaks.left, mid: h * 0.73');
-  if (broken === uiOriginal) { console.error('wave control did not apply'); process.exit(1); }
-  await writeFile(uiPath, broken);
-}
+/* ONE — the audio graph. The right side of the lead-quieter tail is added to
+   the left instead of being subtracted from it. Nothing throws, the song still
+   plays, and the only way to notice is to measure what comes out.
+   (The first control tried here was removing the Content-Length header, which
+   had caused a real bug — the clock stuck at 0:00. It turned nothing red,
+   because the wait for a late-arriving length covers a short file on its own.) */
+await control('apps/desktop/dist/renderer/audio/graph.js',
+  'midR.gain.value = -MIDDLE_CANCEL_GAIN;',
+  'midR.gain.value = MIDDLE_CANCEL_GAIN;', 'the audio graph');
 
-/* A THIRD CONTROL, for the layout. Widening the word under a record button is
-   the regression this redesign sits one edit away from: nothing throws, the app
-   looks entirely plausible, and the dials drop to a row of their own taking 88
-   pixels of case with them — which last time put the tabs and every panel off
-   the bottom of the screen. The bench check has to catch it. */
-/* A FOURTH CONTROL, for the skins. A skin that is listed in the picker and
-   never wired looks exactly like one that works until somebody clicks it, so
-   this stops one of the ten from applying at all. The two checks that count
-   distinct cases and distinct wave pictures have to notice. */
-const skinsPath = join(ROOT, 'apps/desktop/dist/renderer/ui/skins.css');
-const skinsOriginal = await readFile(skinsPath, 'utf8');
-if (NEGATIVE) {
-  const broken = skinsOriginal.replace("html[data-skin='daylight'] {",
-    "html[data-skin='daylight-not-wired'] {");
-  if (broken === skinsOriginal) { console.error('skin control did not apply'); process.exit(1); }
-  await writeFile(skinsPath, broken);
-}
+/* TWO — the picture rather than the sound. The graph flip cannot reach the
+   waveform, so the stereo check would pass whatever happened. This draws the
+   lower half of the wave from the LEFT channel — precisely the mono-looking
+   picture Ted asked to be rid of, and it looks entirely reasonable on screen. */
+await control('apps/desktop/dist/renderer/ui/app.js',
+  '{ data: peaks.right, mid: songH * 0.73',
+  '{ data: peaks.left, mid: songH * 0.73', 'the stereo waveform');
 
-/* A FIFTH CONTROL, for the file that leaves the app. "Saved as C:\\..." appears
-   whatever the encoder produced, so without this the export checks would prove
-   only that a file of roughly the right size arrived. This feeds the MP3
-   encoder silence while everything else — the slicing, the writes, the progress,
-   the message — carries on looking perfect. The checks that measure the pitch
-   and the peak of the saved file have to notice. */
-const workerPath = join(ROOT, 'apps/desktop/dist/renderer/workers/export-worker.js');
-const workerOriginal = await readFile(workerPath, 'utf8');
-if (NEGATIVE) {
-  const broken = workerOriginal.replace(
-    'left[held] = samples[f * channels] ?? 0;', 'left[held] = 0;');
-  if (broken === workerOriginal) { console.error('encoder control did not apply'); process.exit(1); }
-  await writeFile(workerPath, broken);
-}
+/* THREE — the layout. Dropping the line breaks out of the words under the
+   record buttons is the realistic version of this mistake: "Record new" on one
+   line is 75px instead of 50, three of those is more than the row has to give,
+   and the dials drop to a row of their own taking 88 pixels of case with them.
+   A wider max-width alone does nothing, because a <br> breaks whatever the CSS
+   says. */
+await control('apps/desktop/dist/renderer/ui/app.css',
+  '.t-name { max-width: 4.4rem;',
+  '.t-name br { display: none } .t-name { max-width: 14rem;', 'the transport layout');
 
-const cssPath = join(ROOT, 'apps/desktop/dist/renderer/ui/app.css');
-const cssOriginal = await readFile(cssPath, 'utf8');
+/* FOUR — the skins. A skin listed in the picker and never wired looks exactly
+   like one that works until somebody clicks it. */
+await control('apps/desktop/dist/renderer/ui/skins.css',
+  "html[data-skin='daylight'] {",
+  "html[data-skin='daylight-not-wired'] {", 'a wired skin');
+
+/* FIVE — the file that leaves the app. "Saved as C:\\..." appears whatever the
+   encoder produced, so without this the export checks would prove only that a
+   file of roughly the right size arrived. This feeds the MP3 encoder silence
+   while the slicing, the writes, the progress and the message all carry on
+   looking perfect. */
+await control('apps/desktop/dist/renderer/workers/export-worker.js',
+  'left[held] = samples[f * channels] ?? 0;',
+  'left[held] = 0;', 'the MP3 encoder');
+
+/* SIX — the microphones. Splitting four inputs and then reading the SAME output
+   of the splitter for every one of them is the realistic version of this
+   mistake: connect(gain, c) becomes connect(gain, 0), one character, no error,
+   and the app carries on perfectly. Four lanes move, four files are written,
+   every one of them holds microphone one, and the gain switch appears to work
+   because it really is changing a gain — just not the one it is named after.
+
+   (The first thing tried here was leaving the worklet nodes at their default
+   channel count and mode. It turned nothing red, because 'max' really does
+   follow the input's four channels — so the setting is defensive rather than
+   load-bearing, and a control has to break something that is.) */
+await control('apps/desktop/dist/renderer/audio/graph.js',
+  'splitter.connect(gain, c);',
+  'splitter.connect(gain, 0);', 'one microphone per input');
+
 if (NEGATIVE) {
-  /* Dropping the line breaks out of the words is the realistic version of this
-     mistake — "Record new" on one line is 75px instead of 50, and three of
-     those is more than the row has to give. A wider max-width alone does
-     nothing, because a <br> breaks whatever the CSS says. */
-  const broken = cssOriginal.replace('.t-name { max-width: 4.4rem;',
-    '.t-name br { display: none } .t-name { max-width: 14rem;');
-  if (broken === cssOriginal) { console.error('layout control did not apply'); process.exit(1); }
-  await writeFile(cssPath, broken);
+  const dead = mutations.filter((m) => !m.applies);
+  if (dead.length) {
+    console.error(`A negative control no longer applies: ${dead.map((m) => m.what).join(', ')}.`);
+    console.error('Nothing was written. Run "npm run build:code -w tva-player" and try again.');
+    process.exit(1);
+  }
+  for (const m of mutations) await writeFile(m.target, m.broken);
 }
 
 /* Its own data directory, for two reasons that both bite on CI.
@@ -826,11 +854,47 @@ try {
 
   console.log('\n--- the skins ---');
   {
-    /* Ten skins, two axes. The checks below measure what is PAINTED, because a
-       skin that is declared and not wired looks exactly like one that works
+    /* Twelve skins, two axes. The checks below measure what is PAINTED, because
+       a skin that is declared and not wired looks exactly like one that works
        until you click it. */
     const ids = await page.evaluate(() => window.__tvaSkins());
-    check('every skin Ted asked for is offered', ids.length === 10, ids.join(', '));
+    check('every skin Ted asked for is offered', ids.length === 12, ids.join(', '));
+
+    /* THREE LIGHT ONES, measured rather than named. Ted asked for two more
+       light backgrounds on top of Daylight, and a skin can be called anything
+       — so this reads the case colour it actually paints. */
+    const lightness = await page.evaluate(async (list) => {
+      const out = [];
+      for (const id of list) {
+        window.__tvaSetSkin(id);
+        await new Promise((r) => setTimeout(r, 30));
+        const css = getComputedStyle(document.documentElement);
+        const hex = css.getPropertyValue('--case-mid').trim();
+        const n = (at) => parseInt(hex.slice(at, at + 2), 16) / 255;
+        out.push({ id, light: 0.2126 * n(1) + 0.7152 * n(3) + 0.0722 * n(5) });
+      }
+      return out;
+    }, ids);
+    const light = lightness.filter((x) => x.light > 0.6).map((x) => x.id);
+    check('three of them have a light background, for a room with the sun in it',
+      light.length >= 3, light.join(', ') || 'none');
+
+    /* Ted, on the members site: a name a newcomer cannot decode needs a line
+       that decodes it. "Vintage" and "Stage" are exactly that, so every skin
+       carries a sentence and the chosen one's is PRINTED rather than hovered. */
+    const described = await page.evaluate(() => {
+      const skins = window.__tvaSkins();
+      window.__tvaSetSkin(skins[0]);
+      return {
+        all: window.__tvaSkinNotes?.() ?? [],
+        shown: document.getElementById('skin-note')?.textContent ?? '',
+      };
+    });
+    check('every skin says in words what it is for',
+      described.all.length === 12 && described.all.every((w) => w.length > 25),
+      `${described.all.length} described`);
+    check('and the chosen one\'s line is printed under the row, not hidden in a hover',
+      described.shown.length > 25, described.shown.slice(0, 60));
 
     /* A picture of the wave under each, so the canvas — which is painted rather
        than styled, and is therefore the one thing a skin cannot reach on its
@@ -1271,6 +1335,201 @@ try {
       `read ${note}; the fake microphone sings 440 Hz, which is A4`);
   }
 
+  console.log('\n--- four microphones at once ---');
+  {
+    /* AN INTERFACE CANNOT BE PLUGGED INTO A BUILD RUNNER, so a four-channel
+       signal is built inside the page — 220, 330, 440 and 550 Hz, one note per
+       channel — and handed to the recorder through the same door a Clarett or a
+       Scarlett goes through. Each note is what identifies its own file
+       afterwards, which is what makes this a measurement rather than a count of
+       files that appeared. */
+    await page.click('.tab[data-tab="loop"]');
+    await page.evaluate(async () => {
+      if (window.__tvaMicState().open) document.getElementById('mic-open').click();
+      await new Promise((r) => setTimeout(r, 400));
+    });
+    const opened = await page.evaluate(() => window.__tvaFakeMics(4, [220, 330, 440, 550]));
+    check('all four inputs are taken, not just the first two',
+      opened.channels === 4 && opened.live.length === 4,
+      `${opened.channels} channels, ${opened.live.length} recorded`);
+
+    const before = (await readdir(takesDir)).length;
+    await page.click('#rec-new');
+    await page.waitForFunction(
+      () => document.getElementById('lamp-rec').classList.contains('lit'), { timeout: 15000 });
+    await page.waitForTimeout(1600);
+    await page.click('#rec-new');
+    await page.waitForFunction(
+      () => !document.getElementById('lamp-rec').classList.contains('lit'), { timeout: 10000 });
+    await page.waitForTimeout(400);
+
+    const made = (await readdir(takesDir)).filter((n) => n.endsWith('.wav'));
+    const fromThisTake = made.length - before;
+    check('one take writes a file for every microphone, and one more of them mixed',
+      fromThisTake === 5, `${fromThisTake} new files`);
+    const stamp = /(\d{4}-\d{2}-\d{2} \d{2}\.\d{2}\.\d{2})\.wav$/;
+    const newest = made.map((f) => stamp.exec(f)?.[1] ?? '').sort().at(-1);
+    const thisTake = made.filter((f) => f.includes(newest));
+    check('and each file says which microphone it is, in its own name',
+      [1, 2, 3, 4].every((n) => thisTake.some((f) => f.includes(`(Mic ${n})`)))
+      && thisTake.some((f) => f.includes('(all mics mixed)')),
+      thisTake.join(' | '));
+    check('and every file of one take carries the same time, so they sit together',
+      thisTake.length === 5, `${thisTake.length} files stamped ${newest}`);
+
+    /* The notes. A file named "(Mic 3)" holding 220 Hz would mean the channels
+       were crossed, and every file holding the same note would mean Web Audio
+       folded the four down to one before the app ever saw them — which is what
+       happens if the channel count and interpretation are left at their
+       defaults, and it is the single most likely way this breaks. */
+    const pitches = await page.evaluate(async () => {
+      const list = await window.tva.listRecordings();
+      const out = [];
+      for (const take of list.slice(0, 5)) {
+        const bytes = await (await fetch(take.url)).arrayBuffer();
+        const rate = new DataView(bytes).getUint32(24, true);
+        const ctx = new OfflineAudioContext({ numberOfChannels: 1, length: 1, sampleRate: rate });
+        const buf = await ctx.decodeAudioData(bytes);
+        const d = buf.getChannelData(0);
+        const seg = d.slice(Math.floor(rate * 0.4), Math.floor(rate * 1.0));
+        let peak = 0;
+        for (let i = 0; i < seg.length; i++) peak = Math.max(peak, Math.abs(seg[i]));
+        let best = 0; let lag = 0;
+        for (let t = Math.floor(rate / 900); t <= Math.floor(rate / 150); t++) {
+          let acc = 0;
+          for (let i = 0; i + t < seg.length; i++) acc += seg[i] * seg[i + t];
+          if (acc > best) { best = acc; lag = t; }
+        }
+        out.push({ name: take.name, peak, hz: lag ? rate / lag : 0 });
+      }
+      return out;
+    });
+    const noteFor = (n) => pitches.find((x) => x.name.includes(`(Mic ${n})`));
+    const wanted = { 1: 220, 2: 330, 3: 440, 4: 550 };
+    const rightNote = [1, 2, 3, 4].every((n) => {
+      const got = noteFor(n);
+      return got && got.peak > 0.02 && Math.abs(got.hz - wanted[n]) < 12;
+    });
+    check('each microphone\'s own file holds that microphone and no other',
+      rightNote,
+      [1, 2, 3, 4].map((n) => `Mic ${n}: ${noteFor(n)?.hz?.toFixed(0) ?? '—'} Hz`).join(', '));
+
+    const mixed = pitches.find((x) => x.name.includes('all mics mixed'));
+    check('and the mixed file holds all four of them at once',
+      mixed && mixed.peak > 0.02,
+      `peak ${mixed?.peak?.toFixed(3)}`);
+    check('the mix is an average rather than a sum, so four microphones cannot clip it',
+      mixed && mixed.peak < 0.95,
+      `peak ${mixed?.peak?.toFixed(3)} — summed, four at 0.3 each would be near full scale`);
+  }
+
+  console.log('\n--- turning one microphone up ---');
+  {
+    /* THE GAIN HAS TO REACH THE FILE, not just the number on the panel. Mic 2
+       is put up 12 dB, which is four times the amplitude, and the take it
+       writes is measured against mic 1's — which was left alone. */
+    /* Driven through the buttons rather than the state, because what is being
+       checked includes that the buttons are wired, that the panel says which
+       microphone they act on, and that the setting is written down. */
+    await page.click('#mic-next');
+    check('the panel names the microphone the gain buttons act on',
+      (await page.textContent('#gain-who')) === 'Mic 2',
+      await page.textContent('#gain-who'));
+    /* SIX DECIBELS, NOT TWELVE. Twelve doubles twice, and the test signal sits
+       at 0.3 — so mic 2 would arrive at 1.19, be clamped to full scale on the
+       way into the file, and the measured ratio would be 3.33 because of the
+       clamping rather than 4 because of the gain. The check would have passed
+       and measured the wrong thing. */
+    for (let i = 0; i < 6; i++) await page.click('#gain-up');
+    const shown = await page.textContent('#gain-val');
+    const state = await page.evaluate(() => window.__tvaMicState());
+    check('and the gain it is set to', state.gains[1] === 6 && shown === '+6 dB',
+      `${shown} on mic ${state.selected + 1}`);
+
+    await page.click('#rec-new');
+    await page.waitForFunction(
+      () => document.getElementById('lamp-rec').classList.contains('lit'), { timeout: 15000 });
+    await page.waitForTimeout(1400);
+    await page.click('#rec-new');
+    await page.waitForFunction(
+      () => !document.getElementById('lamp-rec').classList.contains('lit'), { timeout: 10000 });
+    await page.waitForTimeout(400);
+
+    const levels = await page.evaluate(async () => {
+      const list = await window.tva.listRecordings();
+      const out = {};
+      for (const take of list.slice(0, 5)) {
+        const which = /\(Mic (\d)\)/.exec(take.name);
+        if (!which) continue;
+        const bytes = await (await fetch(take.url)).arrayBuffer();
+        const rate = new DataView(bytes).getUint32(24, true);
+        const ctx = new OfflineAudioContext({ numberOfChannels: 1, length: 1, sampleRate: rate });
+        const buf = await ctx.decodeAudioData(bytes);
+        const d = buf.getChannelData(0);
+        let peak = 0;
+        for (let i = Math.floor(rate * 0.4); i < Math.min(d.length, rate * 1.0); i++) {
+          peak = Math.max(peak, Math.abs(d[i]));
+        }
+        if (out[which[1]] === undefined) out[which[1]] = peak;
+      }
+      return out;
+    });
+    const ratio = levels['2'] / (levels['1'] || 1);
+    check('turning one microphone up changes what that microphone records',
+      ratio > 1.75 && ratio < 2.25,
+      `mic 2 is ${ratio.toFixed(2)}x mic 1 after +6 dB, which is 2x in amplitude`);
+    check('and leaves the others where they were',
+      Math.abs(levels['1'] - levels['3']) < 0.05,
+      `mic 1 ${levels['1']?.toFixed(3)}, mic 3 ${levels['3']?.toFixed(3)}`);
+
+    await page.waitForTimeout(300);
+    const saved = JSON.parse(await readFile(
+      join(work, 'ud', 'Player Settings', 'settings.json'), 'utf8'));
+    check('the gain is remembered against that interface, not just for now',
+      saved.mics?.['fake-interface']?.gains?.[1] === 6,
+      JSON.stringify(saved.mics ?? {}).slice(0, 80));
+  }
+
+  console.log('\n--- seeing what is being recorded ---');
+  {
+    /* Ted: "Let me see the recording audio signal as it is generated." A lane
+       per microphone, under the song's own wave. Read off the CANVAS, because
+       the whole point is a picture — and read in the strip's own band, so the
+       song's waveform cannot pass this check on its behalf. */
+    const strip = await page.evaluate(() => {
+      const canvas = document.getElementById('wave');
+      const g = canvas.getContext('2d');
+      const dpr = window.devicePixelRatio || 1;
+      const h = canvas.clientHeight;
+      const state = window.__tvaMicState();
+      const bandTop = Math.round((h - Math.min(h * 0.5, state.lanes * 17 + 2)) * dpr);
+      const px = g.getImageData(0, bandTop + 4, canvas.width, canvas.height - bandTop - 8).data;
+      let painted = 0;
+      for (let i = 0; i < px.length; i += 4) if (px[i + 3] > 0) painted++;
+      return { lanes: state.lanes, columns: state.columns, painted, h };
+    });
+    check('there is a lane for every microphone that is on', strip.lanes === 4, `${strip.lanes} lanes`);
+    check('and the signal coming in is drawn there as it arrives',
+      strip.columns > 20 && strip.painted > 500,
+      `${strip.columns} columns of history, ${strip.painted} pixels painted`);
+
+    const heights = await page.evaluate(() => ({
+      rack: Math.round(document.querySelector('.rack').getBoundingClientRect().height),
+      well: Math.round(document.querySelector('.well').getBoundingClientRect().height),
+    }));
+    await page.evaluate(async () => {
+      document.getElementById('mic-open').click();
+      await new Promise((r) => setTimeout(r, 500));
+    });
+    const quiet = await page.evaluate(() => ({
+      rack: Math.round(document.querySelector('.rack').getBoundingClientRect().height),
+      well: Math.round(document.querySelector('.well').getBoundingClientRect().height),
+    }));
+    check('and the case is exactly as tall with four microphones on as with none',
+      heights.rack === quiet.rack && heights.well === quiet.well,
+      `${heights.rack}px live against ${quiet.rack}px idle`);
+  }
+
   console.log('\n--- the click track ---');
   {
     await page.click('.tab[data-tab="click"]');
@@ -1346,6 +1605,32 @@ try {
         takeRow ? `${takeRow.count} buttons, tops ${takeRow.tops.join(', ')}` : 'no take row');
       await page.click('.tab[data-tab="loop"]');
     }
+    /* AND THE SAME AT 1024 WITH FOUR MICROPHONES ON, which is the combination
+       that can only get worse: the lit panel grows by 46 pixels to hold the two
+       buttons that choose which microphone the gain acts on, and 1024 is the
+       width where the case last ran off the side of the window. */
+    await page.setViewportSize({ width: 1024, height: 733 });
+    await page.evaluate(() => window.__tvaFakeMics(4, [220, 330, 440, 550]));
+    await page.waitForTimeout(300);
+    const tight = await page.evaluate(() => ({
+      sideways: document.documentElement.scrollWidth > window.innerWidth + 1,
+      rackBottom: Math.round(document.querySelector('.rack').getBoundingClientRect().bottom),
+      rackRight: Math.round(document.querySelector('.rack').getBoundingClientRect().right),
+      tabsBottom: Math.round(document.querySelector('.tabs').getBoundingClientRect().bottom),
+      deskH: Math.round(document.querySelector('.deskwrap').clientHeight),
+      windowH: window.innerHeight,
+      windowW: window.innerWidth,
+    }));
+    check('four microphones on a 1024-wide screen still fit inside the window',
+      !tight.sideways && tight.rackRight <= tight.windowW,
+      `case ends at ${tight.rackRight} of ${tight.windowW}`);
+    check('and the tabs and the bench are still there under it',
+      tight.tabsBottom <= tight.windowH && tight.deskH >= 90,
+      `tabs at ${tight.tabsBottom} of ${tight.windowH}, ${tight.deskH}px of bench`);
+    await page.evaluate(async () => {
+      document.getElementById('mic-open').click();
+      await new Promise((r) => setTimeout(r, 400));
+    });
     await page.setViewportSize({ width: 1180, height: 760 });
 
     const hint = await page.textContent('.wavehint');
@@ -1410,11 +1695,7 @@ try {
 } finally {
   await app.close().catch(() => {});
   if (NEGATIVE) {
-    await writeFile(graphPath, original);
-    await writeFile(uiPath, uiOriginal);
-    await writeFile(cssPath, cssOriginal);
-    await writeFile(skinsPath, skinsOriginal);
-    await writeFile(workerPath, workerOriginal);
+    for (const m of mutations) await writeFile(m.target, m.original);
   }
   await rm(work, { recursive: true, force: true });
 }

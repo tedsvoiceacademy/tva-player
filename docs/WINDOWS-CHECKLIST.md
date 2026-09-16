@@ -45,25 +45,47 @@ Work through this list once per release.
 12. Kill the app mid-recording. The file left behind still opens — the length is
     recovered from the file's own size.
 
+## The interface's own microphone inputs — THE ONE THING CI CANNOT DO
+
+No build runner has an audio interface, and Chromium cannot make a
+MediaStream with more than two channels inside a page. So everything DOWNSTREAM
+of getUserMedia is checked — four channels are fed straight into the recorder
+and come out as four correctly-named files — but what Windows actually hands
+over for a real interface can only be found out here.
+
+13. Plug in the Clarett 4Pre. Turn the microphone on and read the line in
+    **Set-up**: how many inputs did Windows give? Four is the hoped-for answer;
+    two would mean the driver only offers a pair, which is a fact about the
+    driver rather than a fault in the app.
+14. Record with two microphones plugged into different inputs and confirm each
+    file holds the microphone its name says, not the same one twice.
+15. Do the same with the Zoom interface, and with the laptop's built-in
+    microphone, which should report one input.
+16. Untick an input with nothing plugged into it, record, and confirm no file is
+    written for it.
+17. Turn one microphone up inside the app while singing into it and confirm the
+    bar and the live lane both move with it — and that the noise floor comes up
+    too, which is the honest cost and is worth hearing once.
+
 ## Saving a take out
 
-13. Save a 45-minute take as an MP3. The per-cent on the button climbs from the
+18. Save a 45-minute take as an MP3. The per-cent on the button climbs from the
     first second, the window keeps painting throughout, and memory stays flat —
     the slice-by-slice path is exactly what CI cannot prove at that length.
-14. Save the same take with the song. This is the one that still decodes both
+19. Save the same take with the song. This is the one that still decodes both
     files whole, so it is where memory would run out if anywhere does.
-15. Play a saved MP3 in Windows Media Player and in whatever a student would
+20. Play a saved MP3 in Windows Media Player and in whatever a student would
     use on a phone. A file only this app can open is no use to anybody.
-16. Cancel the Save box, and pull a USB drive out mid-save. Neither leaves a
+21. Cancel the Save box, and pull a USB drive out mid-save. Neither leaves a
     part-written file behind.
 
 ## Updates
 
-17. Install version N, publish N+1, confirm the notice appears and the new
+22. Install version N, publish N+1, confirm the notice appears and the new
     version is in place after closing the app.
 
 ## Media keys
 
-18. Press play/pause while Chrome has the focus, then while Spotify does. If
+23. Press play/pause while Chrome has the focus, then while Spotify does. If
     another app has claimed a key, the app says which one rather than doing
     nothing silently.

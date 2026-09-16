@@ -35,12 +35,19 @@ function safeName(name) {
 }
 
 class Recording {
-  constructor(dir, { name, sampleRate, channels }) {
+  /* `suffix` names which microphone this file holds — " (Mic 2)" — and `at` is
+     the moment the WHOLE take started. Every file of one take carries the same
+     stamp on purpose: four microphones recorded together then sit next to each
+     other in the folder and in the list, rather than a second apart. */
+  constructor(dir, { name, sampleRate, channels, suffix = '', at = null }) {
     this.dir = dir;
     this.sampleRate = sampleRate;
     this.channels = channels;
     const base = safeName(name) || 'Recording';
-    this.filePath = path.join(dir, `${base} ${stamp()}.wav`);
+    /* safeName trims, so the leading space of " (Mic 2)" would be eaten and the
+       name would read "Lesson(Mic 2)". It is put back deliberately. */
+    const part = safeName(suffix);
+    this.filePath = path.join(dir, `${base}${part ? ` ${part}` : ''} ${stamp(at ?? new Date())}.wav`);
     this.handle = null;
     this.dataBytes = 0;
     /* Writes are chained rather than fired off in parallel. See append(). */

@@ -54,7 +54,7 @@ contextBridge.exposeInMainWorld('tva', {
   /* Sent rather than invoked, and the buffer is TRANSFERRED: at 48 kHz this
      fires about every 21 milliseconds for the whole length of a lesson, so
      neither side may keep a copy. */
-  sendChunk: (buffer) => ipcRenderer.send('record:chunk', buffer),
+  sendChunk: (key, buffer) => ipcRenderer.send('record:chunk', key, buffer),
   stopRecording: () => ipcRenderer.invoke('record:stop'),
   listRecordings: () => ipcRenderer.invoke('record:list'),
   removeRecording: (target) => ipcRenderer.invoke('record:remove', target),

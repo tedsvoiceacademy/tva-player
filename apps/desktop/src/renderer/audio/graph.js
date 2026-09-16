@@ -87,6 +87,7 @@ export function buildGraph(ctx) {
   const graph = {
     ctx, splitter, balL, balR, merger, monoSum, midL, midR, midSum,
     trackGain, takeGain, clickGain, micGain, monitorGain, tuner, silent, master,
+    micSplitter: null, micMerger: null, micChannelGains: [], micChannels: 0,
     _source: null,
   };
   routeTail(graph, { leadQuieter: false, oneSpeaker: false });
@@ -120,4 +121,81 @@ export function applyBalance(graph, balance) {
   const { left, right } = balanceGains(balance);
   graph.balL.gain.value = left;
   graph.balR.gain.value = right;
+}
+
+/* ---- the microphones ----------------------------------------------------
+ *
+ * An interface with four microphone inputs arrives as ONE stream of four
+ * channels, so the chain that used to be "source straight into micGain" is now
+ * pulled apart and put back together: a splitter, one gain per microphone, and
+ * a merger. That is what makes a gain switch per microphone possible at all,
+ * and it is why the gains live here rather than being a number the UI keeps.
+ *
+ * TWO NODE SETTINGS DO ALL THE WORK, and neither is a default. 'explicit' stops
+ * Web Audio deciding it knows better and handing every node two channels, and
+ * 'discrete' stops it treating channels three and four as surround and folding
+ * them into the front pair. Left alone, a four-microphone interface comes out
+ * as a stereo mix of all four and no gain switch can do anything about it.
+ */
+export function attachMic(graph, source, channels) {
+  const { ctx } = graph;
+  const count = Math.max(1, channels);
+
+  const splitter = ctx.createChannelSplitter(count);
+  splitter.channelCount = count;
+  splitter.channelCountMode = 'explicit';
+  splitter.channelInterpretation = 'discrete';
+
+  const merger = ctx.createChannelMerger(count);
+  const gains = [];
+  for (let c = 0; c < count; c++) {
+    const gain = ctx.createGain();
+    gain.channelCount = 1;
+    gain.channelCountMode = 'explicit';
+    gain.channelInterpretation = 'discrete';
+    splitter.connect(gain, c);
+    gain.connect(merger, 0, c);
+    gains.push(gain);
+  }
+
+  source.connect(splitter);
+  merger.connect(graph.micGain);
+
+  /* The tuner names ONE note, so it listens to the first microphone rather than
+     to all of them at once. Four singers blended give it nothing to name. */
+  try { graph.micGain.disconnect(graph.tuner); } catch { /* not connected yet */ }
+  gains[0].connect(graph.tuner);
+
+  graph.micSplitter = splitter;
+  graph.micMerger = merger;
+  graph.micChannelGains = gains;
+  graph.micChannels = count;
+  return { splitter, merger, gains };
+}
+
+export function detachMic(graph) {
+  for (const node of [graph.micSplitter, graph.micMerger, ...(graph.micChannelGains ?? [])]) {
+    if (node) { try { node.disconnect(); } catch { /* already gone */ } }
+  }
+  graph.micSplitter = null;
+  graph.micMerger = null;
+  graph.micChannelGains = [];
+  graph.micChannels = 0;
+}
+
+/** Turn a gain in decibels into the number Web Audio wants. */
+export function dbToGain(db) {
+  return 10 ** (Number(db || 0) / 20);
+}
+
+/** Set one microphone's gain, in decibels, without a click. */
+export function setMicGain(graph, channel, db) {
+  const node = graph.micChannelGains?.[channel];
+  if (!node) return false;
+  /* Ramped rather than assigned. A gain jumped in one sample is a click, and a
+     click in the middle of a take is in the take for ever. */
+  const now = graph.ctx.currentTime;
+  node.gain.cancelScheduledValues(now);
+  node.gain.setTargetAtTime(dbToGain(db), now, 0.01);
+  return true;
 }

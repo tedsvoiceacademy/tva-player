@@ -312,3 +312,97 @@ html[data-skin='stage'] {
   --wave-flat: #1d1134;
   --wave-loop: 224, 72, 155;
 }
+
+/* ---- two more light ones ------------------------------------------------
+ *
+ * Ted asked for two more light backgrounds, one of them with the accents "more
+ * vibrant and colorful". Daylight is a warm cream with one muted gold, so these
+ * go the other way from it and from each other: Bright colours is white with
+ * three strong hues pulling in different directions, and Paper grey is the
+ * quietest thing in the set.
+ *
+ * Every colour below was checked against the readout's own backdrop rather than
+ * chosen by eye — the contrast check in the harness measures all twelve. */
+
+/* WHITE, WITH THE STRONGEST ACCENTS IN THE SET. Three hues doing three jobs:
+   pink names things, teal is the song, orange is recording. */
+html[data-skin='bright'] {
+  --navy-deep: #f7f9fc;
+  --navy-mid: #e8edf5;
+  --gold: #c2185b;
+  --gold-hover: #d81b60;
+  --cream: #1a1d24;
+  --white: #0b0d12;
+  --lit: #0b3d91;
+  --ahead: #9fb3c8;
+  --case-hi: #ffffff;
+  --case-mid: #f4f7fb;
+  --case-low: #e8edf5;
+  --hero-mid: #f4f7fb;
+  --glass-hi: #ffffff;
+  --glass-low: #eef2f8;
+  --well: #e4eaf3;
+  --knob-cap: #e8edf5;
+  --gold-deep: #8c1145;
+  --on-gold: #ffffff;
+  --panel-border: rgba(0, 0, 0, 0.14);
+  --over-ink: #ffffff;
+  --rec: #d84315;
+  --rec-hi: #d84315;
+  --rec-low: #a52f0d;
+  --rec-lamp: #d84315;
+  --rec-lamp-ink: #a52f0d;
+  --ok: #00794a;
+  --warn: #8a5a10;
+  --wave-played: #00796b;
+  --wave-ahead: #9fb3c8;
+  --wave-head: #1a1d24;
+  --wave-flat: #ccd6e0;
+  --wave-loop: 194, 24, 91;
+  --wave-live: #00794a;
+}
+
+/* THE QUIETEST LIGHT ONE. Paper grey and one blue, for a bright room where
+   nothing on screen should compete with the singing. */
+html[data-skin='paper'] {
+  --navy-deep: #f4f5f6;
+  --navy-mid: #e4e6e9;
+  --gold: #1f5f9e;
+  --gold-hover: #2872b8;
+  --cream: #23262a;
+  --white: #101214;
+  --lit: #1d3f5c;
+  --ahead: #b6bcc4;
+  --case-hi: #fbfbfc;
+  --case-mid: #f1f2f4;
+  --case-low: #e5e7ea;
+  --hero-mid: #f1f2f4;
+  --glass-hi: #ffffff;
+  --glass-low: #edeef1;
+  --well: #e6e8ec;
+  --knob-cap: #e4e6e9;
+  --gold-deep: #144a7d;
+  --on-gold: #ffffff;
+  --panel-border: rgba(0, 0, 0, 0.12);
+  --over-ink: #ffffff;
+  --rec: #b3261e;
+  --rec-hi: #b3261e;
+  --rec-low: #8c1d17;
+  --rec-lamp: #b3261e;
+  --rec-lamp-ink: #8c1d17;
+  --ok: #1f7a46;
+  --warn: #8a5a10;
+  --wave-played: #1f5f9e;
+  --wave-ahead: #b6bcc4;
+  --wave-head: #23262a;
+  --wave-flat: #d3d7dd;
+  --wave-loop: 31, 95, 158;
+  --wave-live: #1f7a46;
+}
+
+/* The live microphone lanes, for the light skins that were here first. Their
+   own accents are what they should be drawn in; the default green belongs to
+   the dark ones. */
+html[data-skin='daylight'] { --wave-live: #1f7a46; }
+html[data-skin='contrast'] { --wave-live: #00e0ff; }
+html[data-skin='vintage'] { --wave-live: #4e7d52; }

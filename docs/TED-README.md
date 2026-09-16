@@ -73,6 +73,26 @@ start, and **Keep last** saves the last two minutes the microphone already heard
 so a good run is never lost for want of pressing record. While the microphone is
 on, **Your voice** appears in the display with a bar showing how loud you are.
 
+**Turning a microphone up.** Under the bar, **−** and **+** move the app's own
+gain a decibel at a time; double-click the number to put it back to nothing. It
+sits on top of whatever the interface is set to, so it is there when the
+interface has run out. It turns the room up along with the voice, so use the
+least that gets you off the bottom of the bar. Each microphone keeps its own
+setting, remembered against that interface.
+
+**More than one microphone.** An interface with several inputs hands all of them
+over at once and the app takes up to eight. **Set-up** says how many Windows
+gave and lets you untick any input with nothing plugged in. One take then writes
+**a file for every microphone, plus one more with them all mixed** — so you can
+send one singer their own track, or listen back to the room. With several on,
+**◀** and **▶** beside the gain switch choose which one it acts on, and the
+panel names it. The tuner follows the first microphone, and **Keep last** saves
+the mix.
+
+**Seeing what is being recorded.** While the microphone is on, the bottom of the
+waveform becomes a live picture of what is coming in — one lane per microphone,
+named, scrolling from the right, and red while a take is running.
+
 Takes are listed under **Takes**, kept as WAV files. You can also record what the
 computer itself is playing, from that same tab.
 
@@ -101,8 +121,9 @@ never have to come back to this file.
 
 ## How it looks
 
-Ten skins, under **Set-up**. Each changes the colours and the finish together —
-some are lit like hardware, some are flat like modern recording software:
+Twelve skins, under **Set-up**. Each changes the colours and the finish together
+— some are lit like hardware, some are flat like modern recording software. The
+chosen one's description is printed under the row:
 
 | | |
 |---|---|
@@ -111,6 +132,8 @@ some are lit like hardware, some are flat like modern recording software:
 | **PASS** | The profile platform's deep teal and green |
 | **Vocal Fit** | Dark green with the bright green accent |
 | **Daylight** | Cream case, dark text — for a sunlit room |
+| **Bright colours** | White, with the strongest colours in the set: pink names things, teal is the song, orange is recording |
+| **Paper grey** | The quietest light one — paper grey and a single blue |
 | **Studio grey** | Neutral grey; nothing competes with the song |
 | **High contrast** | Black and white, for reading it across the room |
 | **Vintage** | Warm brown and cream, matte, like the hardware player |

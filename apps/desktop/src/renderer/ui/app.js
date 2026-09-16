@@ -9,7 +9,8 @@
 import { Player, PRACTICE_MAX_SECONDS } from '../audio/player.js';
 import { Recorder } from '../audio/recorder.js';
 import { Metronome } from '../audio/metronome.js';
-import { listMicrophones, listOutputs, openMic, openSystemAudio } from '../audio/mic.js';
+import { listMicrophones, listOutputs, openMic, openSystemAudio, MAX_MIC_CHANNELS } from '../audio/mic.js';
+import { setMicGain } from '../audio/graph.js';
 import {
   sanitizePlayerSettings, DEFAULT_PLAYER_SETTINGS, sanitizeSections,
   emptySongFile, xToTime, dragToLoopRegion, isClickNotDrag,
@@ -27,6 +28,24 @@ const metronome = new Metronome(player.graph);
 let library = { folders: [], songs: [] };
 let takes = [];
 let micOpen = false;
+/* THE MICROPHONES, once Windows has said how many there are.
+ *
+ *   micChannels  how many inputs the open device handed over
+ *   micUse       one per input: is there a microphone worth recording on it
+ *   micGains     one per input, in decibels — kept per device, so plugging the
+ *                interface back in next week finds the levels where they were
+ *   micLive      the inputs in use, in order; a lane in the well each
+ *   micSelected  WHICH LANE the gain buttons act on, named on the panel rather
+ *                than remembered
+ */
+let micDeviceId = '';
+let micChannels = 0;
+let micUse = [];
+let micGains = [];
+let micLive = [];
+let micSelected = 0;
+const MIC_GAIN_MIN = -20;
+const MIC_GAIN_MAX = 36;
 let tunerTimer = null;
 
 let song = null;
@@ -475,8 +494,95 @@ function waveColours() {
     head: v('--wave-head', '#f5f0e1'),
     flat: v('--wave-flat', '#16294a'),
     loop: v('--wave-loop', '212, 168, 75'),
+    live: v('--wave-live', '#56c39a'),
+    liveRec: v('--rec-hi', '#e06060'),
+    liveBed: v('--wave-flat', '#16294a'),
   };
   return waveInk;
+}
+
+/* ========================================================================
+   WHAT THE MICROPHONES ARE HEARING, AS IT HAPPENS
+   ========================================================================
+
+   Ted: "Let me see the recording audio signal as it is generated so I can see
+   what is recording in that visual way as well." A bar tells you how loud one
+   moment is; it cannot show you the phrase you just sang, and with four
+   microphones it cannot show you which of them the sound came from.
+
+   So each microphone gets a lane under the song's own waveform, scrolling from
+   the right, and the part that is actually being recorded is drawn in the
+   record colour rather than the listening one.
+
+   IT COSTS NO EXTRA AUDIO WORK. The level meter already measures the peak and
+   the average of every channel twenty times a second, which is one column every
+   fifty milliseconds — fast enough to watch a phrase go by. Nothing new is read
+   off the audio thread to draw this.
+*/
+const LIVE_COL_PX = 2;
+const LIVE_MAX_COLS = 900;      // about 45 seconds of history at 20 a second
+const LIVE_LANE_PX = 17;
+let liveCols = [];              // [{ p: [peak per mic], r: [rms per mic], rec: bool }]
+let liveChannels = 0;
+let liveNames = [];
+
+function liveStripHeight(h) {
+  if (!micOpen || liveChannels === 0) return 0;
+  /* Never more than half the well. Eight microphones would otherwise leave the
+     song a sliver, and the song is what the loop is marked on. */
+  return Math.min(Math.round(h * 0.5), liveChannels * LIVE_LANE_PX + 2);
+}
+
+function pushLiveColumn(peaks, rms) {
+  liveCols.push({ p: peaks, r: rms, rec: recorder.running });
+  if (liveCols.length > LIVE_MAX_COLS) liveCols.splice(0, liveCols.length - LIVE_MAX_COLS);
+}
+
+function drawLiveStrip(g, w, top, height, ink) {
+  const lanes = liveChannels;
+  const laneH = (height - 2) / lanes;
+  const columns = Math.floor(w / LIVE_COL_PX);
+  const from = Math.max(0, liveCols.length - columns);
+
+  g.fillStyle = ink.liveBed;
+  g.fillRect(0, top + 2, w, height - 2);
+  g.fillStyle = 'rgba(128,128,128,0.35)';
+  g.fillRect(0, top, w, 1);
+
+  for (let lane = 0; lane < lanes; lane++) {
+    const laneTop = top + 2 + lane * laneH;
+    const centre = laneTop + laneH / 2;
+    const room = (laneH - 3) / 2;
+
+    if (lanes > 1 && lane === micSelected) {
+      g.fillStyle = `rgba(${ink.loop}, 0.14)`;
+      g.fillRect(0, laneTop, w, laneH);
+    }
+
+    g.fillStyle = 'rgba(128,128,128,0.22)';
+    g.fillRect(0, Math.round(centre), w, 1);
+
+    for (let i = from; i < liveCols.length; i++) {
+      const col = liveCols[i];
+      const peak = col.p[lane] ?? 0;
+      const x = w - (liveCols.length - i) * LIVE_COL_PX;
+      if (x < 0) continue;
+      const tall = Math.max(1, Math.min(room, peak * room) * 2);
+      g.fillStyle = col.rec ? ink.liveRec : ink.live;
+      g.fillRect(x, centre - tall / 2, LIVE_COL_PX - 0.5, tall);
+    }
+
+    /* The name goes ON the lane, with its gain, so nothing about which lane is
+       which or what it is set to has to be remembered or hovered for. */
+    g.font = '600 9px Consolas, ui-monospace, monospace';
+    g.fillStyle = ink.head;
+    g.globalAlpha = lane === micSelected || lanes === 1 ? 0.85 : 0.5;
+    const name = liveNames[lane] ?? `MIC ${lane + 1}`;
+    const db = micGains[micLive[lane]] ?? 0;
+    const shown = micLive.length ? `${name}${db ? `  ${db > 0 ? '+' : ''}${db} dB` : ''}` : name;
+    g.fillText(shown, 4, laneTop + Math.min(laneH - 3, 10));
+    g.globalAlpha = 1;
+  }
 }
 
 function drawWave() {
@@ -490,8 +596,16 @@ function drawWave() {
   g.clearRect(0, 0, w, h);
 
   const played = duration > 0 ? player.currentTime / duration : 0;
-  const mid = h / 2;
   const ink = waveColours();
+
+  /* WHILE THE MICROPHONE IS ON the song gives up the bottom of the well to a
+     live picture of what is coming in. The well itself does not change size:
+     at 1024 pixels wide the case has 124 pixels of bench under it, and taking
+     any of that would push the tabs off the bottom of the screen — which is a
+     fault this app has shipped once already. */
+  const strip = liveStripHeight(h);
+  const songH = h - strip;
+  const mid = songH / 2;
 
   // The marked part, behind everything.
   const region = dragRegion
@@ -500,17 +614,17 @@ function drawWave() {
   if (region && duration > 0) {
     const x1 = (region.a / duration) * w, x2 = (region.b / duration) * w;
     g.fillStyle = `rgba(${ink.loop}, ${dragRegion ? 0.3 : 0.18})`;
-    g.fillRect(x1, 0, Math.max(1, x2 - x1), h);
+    g.fillRect(x1, 0, Math.max(1, x2 - x1), songH);
     g.fillStyle = `rgba(${ink.loop}, 0.8)`;
-    g.fillRect(x1, 0, 1, h); g.fillRect(x2 - 1, 0, 1, h);
+    g.fillRect(x1, 0, 1, songH); g.fillRect(x2 - 1, 0, 1, songH);
   }
 
   if (peaks) {
     const bw = w / peaks.left.length;
     const lanes = peaks.right
-      ? [{ data: peaks.left, mid: h * 0.27, room: h * 0.24, tag: 'L' },
-         { data: peaks.right, mid: h * 0.73, room: h * 0.24, tag: 'R' }]
-      : [{ data: peaks.left, mid, room: h * 0.44, tag: 'MONO' }];
+      ? [{ data: peaks.left, mid: songH * 0.27, room: songH * 0.24, tag: 'L' },
+         { data: peaks.right, mid: songH * 0.73, room: songH * 0.24, tag: 'R' }]
+      : [{ data: peaks.left, mid, room: songH * 0.44, tag: 'MONO' }];
 
     for (const lane of lanes) {
       for (let i = 0; i < lane.data.length; i++) {
@@ -539,7 +653,9 @@ function drawWave() {
   }
 
   g.fillStyle = ink.head;
-  g.fillRect(Math.min(played * w, w - 2), 0, 2, h);
+  g.fillRect(Math.min(played * w, w - 2), 0, 2, songH);
+
+  if (strip > 0) drawLiveStrip(g, w, songH, strip, ink);
 }
 
 /* ---- Events ------------------------------------------------------------- */
@@ -909,7 +1025,66 @@ window.__tvaSpeed = () => settings.speed;
    and 2 for a stereo one. A check that waits on pixels alone cannot tell a
    wave that has not arrived yet from a flat line, and passed on the flat one. */
 window.__tvaWaveLanes = () => (peaks ? (peaks.right ? 2 : 1) : 0);
+/* ---- hooks the checks drive ---------------------------------------------
+ *
+ * An interface with four microphone inputs cannot be plugged into a build
+ * runner, and Chromium's fake microphone is one channel. So the checks build a
+ * four-channel signal inside the page — four different notes, one per channel —
+ * and hand it to the recorder through the same door a real interface uses. That
+ * is the only way the multi-microphone path gets exercised at all. */
+window.__tvaMicState = () => ({
+  open: micOpen,
+  channels: micChannels,
+  live: [...micLive],
+  use: [...micUse],
+  gains: [...micGains],
+  selected: micSelected,
+  columns: liveCols.length,
+  lanes: liveChannels,
+});
+
+window.__tvaFakeMics = async (count, hzPerChannel) => {
+  const ctx = player.ctx;
+  await ctx.resume();
+  const merger = ctx.createChannelMerger(count);
+  for (let c = 0; c < count; c++) {
+    const osc = ctx.createOscillator();
+    osc.frequency.value = hzPerChannel[c];
+    const level = ctx.createGain();
+    level.gain.value = 0.3;
+    osc.connect(level).connect(merger, 0, c);
+    osc.start();
+  }
+
+  micDeviceId = 'fake-interface';
+  micChannels = count;
+  await loadMicSettings(micDeviceId, count);
+  await recorder.listen({ sourceNode: merger, channels: count, use: micUse });
+  micOpen = true;
+  liveCols = [];
+  liveChannels = micLive.length;
+  liveNames = micLive.length === 1 ? ['YOUR VOICE'] : micLive.map((c) => `MIC ${c + 1}`);
+  for (const c of micLive) setMicGain(player.graph, c, micGains[c] ?? 0);
+  $('level').hidden = false;
+  $('meter-text').textContent = 'Keep out of the red';
+  paintMicPanel();
+  paintMicList('Fake interface');
+  paintRecord();
+  drawWave();
+  return { channels: micChannels, live: [...micLive] };
+};
+
+window.__tvaSetMicGain = (channel, db) => {
+  micGains[channel] = db;
+  setMicGain(player.graph, channel, db);
+  paintMicPanel();
+  return micGains[channel];
+};
+
+window.__tvaSetMicUse = async (channel, on) => { await onMicUseChanged(channel, on); };
+
 window.__tvaSkins = () => SKINS.map((s) => s.id);
+window.__tvaSkinNotes = () => SKINS.map((s) => s.what);
 window.__tvaSetSkin = (id) => applySkin(id).id;
 
 wireKnobs();
@@ -1116,9 +1291,22 @@ function paintRecord() {
 async function ensureMic() {
   if (micOpen) return true;
   try {
-    const opened = await openMic($('mic-pick').value || undefined);
-    await recorder.listen({ stream: opened.stream, channels: 1 });
+    micDeviceId = $('mic-pick').value || '';
+    const opened = await openMic(micDeviceId || undefined);
+    /* BUILT FROM WHAT CAME BACK, not from what was asked for. A two-input
+       interface answers an eight-channel request with two, and everything from
+       here on — the files, the lanes, the gain switch — counts those two. */
+    micChannels = opened.channels;
+    await loadMicSettings(micDeviceId, micChannels);
+    await recorder.listen({
+      stream: opened.stream, channels: micChannels, use: micUse,
+    });
     micOpen = true;
+    liveCols = [];
+    liveChannels = micLive.length;
+    liveNames = micLive.length === 1
+      ? ['YOUR VOICE'] : micLive.map((c) => `MIC ${c + 1}`);
+    for (const c of micLive) setMicGain(player.graph, c, micGains[c] ?? 0);
     await refreshMics();            // labels only arrive after permission
     $('level').hidden = false;
     $('meter-text').textContent = 'Keep out of the red';
@@ -1126,13 +1314,157 @@ async function ensureMic() {
     warn.hidden = !opened.processingWarning;
     warn.className = 'note warn';
     warn.textContent = opened.processingWarning ?? '';
+    paintMicPanel();
+    paintMicList(opened.label);
     startTuner();
     paintRecord();
+    drawWave();
     return true;
   } catch (err) {
     say(`That microphone would not open. ${err?.message ?? err}`);
     return false;
   }
+}
+
+/* ---- the gain switch, one microphone at a time -------------------------- */
+
+function micSettingsKey(deviceId) {
+  return deviceId || 'default';
+}
+
+async function loadMicSettings(deviceId, channels) {
+  const stored = (await window.tva.loadSettings())?.mics?.[micSettingsKey(deviceId)] ?? {};
+  micUse = [];
+  micGains = [];
+  for (let c = 0; c < channels; c++) {
+    micUse.push(stored.use?.[c] !== false);
+    micGains.push(clampGain(Number(stored.gains?.[c]) || 0));
+  }
+  if (!micUse.some(Boolean)) micUse[0] = true;
+  micLive = [];
+  for (let c = 0; c < channels; c++) if (micUse[c]) micLive.push(c);
+  micSelected = 0;
+}
+
+async function saveMicSettings() {
+  const settings = await window.tva.loadSettings();
+  const mics = { ...(settings.mics ?? {}) };
+  mics[micSettingsKey(micDeviceId)] = { use: [...micUse], gains: [...micGains] };
+  await window.tva.saveSettings({ ...settings, mics });
+}
+
+function clampGain(db) {
+  return Math.max(MIC_GAIN_MIN, Math.min(MIC_GAIN_MAX, Math.round(db)));
+}
+
+function selectedChannel() {
+  return micLive[micSelected] ?? micLive[0] ?? 0;
+}
+
+function paintMicPanel() {
+  const several = micLive.length > 1;
+  $('level').classList.toggle('many', several);
+  $('level-title').textContent = several ? 'Your mics' : 'Your voice';
+  $('mic-prev').hidden = !several;
+  $('mic-next').hidden = !several;
+  const channel = selectedChannel();
+  $('gain-who').textContent = several ? `Mic ${channel + 1}` : 'Gain';
+  const db = micGains[channel] ?? 0;
+  $('gain-val').textContent = `${db > 0 ? '+' : ''}${db} dB`;
+  /* Nothing to turn up when what is being listened to is the computer's own
+     sound: that has no microphone and no preamp behind it. */
+  const adjustable = micLive.length > 0;
+  $('gain-down').disabled = !adjustable || db <= MIC_GAIN_MIN;
+  $('gain-up').disabled = !adjustable || db >= MIC_GAIN_MAX;
+  $('gain-who').textContent = adjustable ? $('gain-who').textContent : 'This computer';
+}
+
+function nudgeGain(step) {
+  if (!micOpen) return;
+  const channel = selectedChannel();
+  const next = clampGain((micGains[channel] ?? 0) + step);
+  if (next === micGains[channel]) return;
+  micGains[channel] = next;
+  setMicGain(player.graph, channel, next);
+  paintMicPanel();
+  drawWave();
+  saveMicSettings();
+  say(micLive.length > 1
+    ? `Mic ${channel + 1} is now ${next > 0 ? '+' : ''}${next} dB. Turning a microphone up turns the room up with it.`
+    : `The microphone is now ${next > 0 ? '+' : ''}${next} dB. Turning it up turns the room up with it.`);
+}
+
+$('gain-down').addEventListener('click', () => nudgeGain(-1));
+$('gain-up').addEventListener('click', () => nudgeGain(1));
+/* Back to no boost at all, the same gesture that resets a dial. */
+$('gain-val').addEventListener('dblclick', () => {
+  if (!micOpen) return;
+  const channel = selectedChannel();
+  micGains[channel] = 0;
+  setMicGain(player.graph, channel, 0);
+  paintMicPanel(); drawWave(); saveMicSettings();
+});
+
+function stepMic(by) {
+  if (micLive.length < 2) return;
+  micSelected = (micSelected + by + micLive.length) % micLive.length;
+  paintMicPanel();
+  drawWave();
+}
+$('mic-prev').addEventListener('click', () => stepMic(-1));
+$('mic-next').addEventListener('click', () => stepMic(1));
+
+/* The list in Set-up: which inputs this device has, and which of them to
+   record. Written from what the device gave rather than from a guess. */
+function paintMicList(deviceLabel) {
+  const host = $('mic-list');
+  host.textContent = '';
+  if (!micOpen || micChannels === 0) {
+    $('mic-count').textContent = 'Turn the microphone on to see how many inputs this device has.';
+    return;
+  }
+  $('mic-count').textContent = micChannels === 1
+    ? `${deviceLabel ?? 'This device'} gave one microphone input.`
+    : `${deviceLabel ?? 'This device'} gave ${micChannels} microphone inputs, `
+      + `and the app records up to ${MAX_MIC_CHANNELS} at once.`;
+
+  for (let c = 0; c < micChannels; c++) {
+    const line = document.createElement('label');
+    line.className = 'micline';
+    const box = document.createElement('input');
+    box.type = 'checkbox';
+    box.checked = micUse[c];
+    box.addEventListener('change', () => onMicUseChanged(c, box.checked));
+    const name = document.createElement('span');
+    name.className = 'micname';
+    name.textContent = `Mic ${c + 1}`;
+    const gain = document.createElement('span');
+    gain.className = 'micgain';
+    const db = micGains[c] ?? 0;
+    gain.textContent = `${db > 0 ? '+' : ''}${db} dB`;
+    const what = document.createElement('span');
+    what.className = 'note';
+    what.textContent = micUse[c] ? 'Recorded to its own file' : 'Not recorded';
+    line.append(box, name, gain, what);
+    host.append(line);
+  }
+}
+
+/* Changing which inputs are recorded means re-opening the microphone: the
+   number of files a take is written to is settled when recording starts, and
+   the worklet is built around it. Refused mid-take rather than done badly. */
+async function onMicUseChanged(channel, on) {
+  if (recorder.running) {
+    say('Stop the take first — which microphones are recorded is settled when a take starts.');
+    paintMicList();
+    return;
+  }
+  micUse[channel] = on;
+  if (!micUse.some(Boolean)) { micUse[channel] = true; say('At least one microphone has to be recorded.'); }
+  await saveMicSettings();
+  await recorder.stop();
+  micOpen = false;
+  await ensureMic();
 }
 
 $('mic-open').addEventListener('click', async () => {
@@ -1142,10 +1474,16 @@ $('mic-open').addEventListener('click', async () => {
     if (micOpen) {
       await recorder.stop();
       micOpen = false;
+      liveChannels = 0;
+      liveCols = [];
+      liveNames = [];
+      micLive = [];
       $('level').hidden = true;
       $('tuner').hidden = true;
       stopTuner();
       $('meter-text').textContent = 'Off';
+      paintMicList();
+      drawWave();
       say('');
     } else if (await ensureMic()) {
       say('Microphone on. Sing your loudest and keep the bar out of the red.');
@@ -1156,13 +1494,34 @@ $('mic-open').addEventListener('click', async () => {
   }
 });
 
-recorder.onLevel = ({ peak, rms, clipped }) => {
+recorder.onLevel = ({ peak, rms, clipped, peaks, rmsEach, clippedEach }) => {
+  /* THE BAR FOLLOWS THE MICROPHONE THE GAIN BUTTONS ACT ON, so the two agree.
+     With one microphone that is the only one there is, and this behaves
+     exactly as it did before. */
+  const channel = selectedChannel();
+  const onePeak = peaks?.[channel] ?? peak;
+  const oneRms = rmsEach?.[channel] ?? rms;
   const meter = $('meter-fill').parentElement;
-  $('meter-fill').style.width = `${Math.min(100, rms * 140)}%`;
-  $('meter-peak').style.left = `${Math.min(99, peak * 100)}%`;
+  $('meter-fill').style.width = `${Math.min(100, oneRms * 140)}%`;
+  $('meter-peak').style.left = `${Math.min(99, onePeak * 100)}%`;
+  /* Clipping warns on ANY microphone, not just the chosen one: a take ruined
+     on mic 3 is ruined whether or not you were watching mic 3. */
   meter.classList.toggle('clipped', clipped);
   if (clipped) {
-    $('meter-text').textContent = 'Too loud';
+    const which = clippedEach ? clippedEach.findIndex(Boolean) : -1;
+    $('meter-text').textContent = micLive.length > 1 && which >= 0
+      ? `Mic ${which + 1} too loud` : 'Too loud';
+  }
+
+  if (micOpen && liveChannels > 0) {
+    pushLiveColumn(
+      micLive.map((c) => peaks?.[c] ?? peak),
+      micLive.map((c) => rmsEach?.[c] ?? rms),
+    );
+    /* Redrawn here rather than on a timer of its own: this arrives twenty times
+       a second, which is the rate the picture moves at anyway. While a song is
+       playing the clock redraws it too, and drawing twice costs nothing. */
+    if (!player.playing) drawWave();
   }
 };
 recorder.onSeconds = (s) => {
@@ -1199,8 +1558,12 @@ async function endTake() {
   takeOwner = null;
   paintRecord();
   if (withSong && player.playing) player.pause();
-  say(done ? `Kept ${formatTime(done.seconds)} as a take. It is under Takes.`
-           : 'Nothing was recorded.');
+  const many = done?.takes?.length ?? 1;
+  say(done
+    ? (many > 1
+      ? `Kept ${formatTime(done.seconds)} as ${many} takes — one for each mic, and one of them all mixed. They are under Takes.`
+      : `Kept ${formatTime(done.seconds)} as a take. It is under Takes.`)
+    : 'Nothing was recorded.');
   await refreshTakes();
 }
 
@@ -1225,11 +1588,18 @@ $('rec-last').addEventListener('click', async () => {
 $('rec-system').addEventListener('click', async () => {
   try {
     const got = await openSystemAudio();
-    await recorder.listen({ stream: got.stream, channels: 2 });
+    await recorder.listen({ stream: got.stream, channels: 2, stereo: true });
     micOpen = true;
+    micChannels = 2; micUse = [true, true]; micGains = [0, 0];
+    micLive = []; micSelected = 0;          // no gain switch on the computer's own sound
+    liveCols = [];
+    liveChannels = 2;
+    liveNames = ['LEFT', 'RIGHT'];
     $('level').hidden = false;
     $('meter-text').textContent = `Listening to ${got.label}.`;
+    paintMicPanel();
     paintRecord();
+    drawWave();
     say('Ready. Press Record new to capture what the computer is playing.');
   } catch (err) {
     say(err?.message ?? 'The computer’s sound could not be captured.');
@@ -1442,16 +1812,30 @@ $('click-on').addEventListener('click', async () => {
    ======================================================================== */
 
 const SKINS = [
-  { id: 'navy', name: 'Studio navy', finish: 'glossy', case: '#132445', accent: '#d4a84b' },
-  { id: 'avf', name: 'AVF', finish: 'glossy', case: '#17596a', accent: '#d4a039' },
-  { id: 'pass', name: 'PASS', finish: 'glossy', case: '#0f4d5a', accent: '#3db58c' },
-  { id: 'vocalfit', name: 'Vocal Fit', finish: 'glossy', case: '#0c3c3c', accent: '#3ffc63' },
-  { id: 'daylight', name: 'Daylight', finish: 'flat', case: '#efe9da', accent: '#8a6416' },
-  { id: 'grey', name: 'Studio grey', finish: 'matte', case: '#232528', accent: '#63a8e8' },
-  { id: 'contrast', name: 'High contrast', finish: 'flat', case: '#000000', accent: '#ffd400' },
-  { id: 'vintage', name: 'Vintage', finish: 'matte', case: '#45301e', accent: '#d59a3c' },
-  { id: 'night', name: 'Night', finish: 'matte', case: '#0b0e12', accent: '#b8842f' },
-  { id: 'stage', name: 'Stage', finish: 'glossy', case: '#1f1238', accent: '#e0489b' },
+  { id: 'navy', name: 'Studio navy', finish: 'glossy', case: '#132445', accent: '#d4a84b',
+    what: 'The one it starts in — the studio\u2019s own navy and gold, lit like hardware.' },
+  { id: 'avf', name: 'AVF', finish: 'glossy', case: '#17596a', accent: '#d4a039',
+    what: 'The teal and amber of the Adaptive Voice Framework book.' },
+  { id: 'pass', name: 'PASS', finish: 'glossy', case: '#0f4d5a', accent: '#3db58c',
+    what: 'The deep teal and green of the PASS Profile platform.' },
+  { id: 'vocalfit', name: 'Vocal Fit', finish: 'glossy', case: '#0c3c3c', accent: '#3ffc63',
+    what: 'Dark green with the bright green accent, from the Vocal Fit artwork.' },
+  { id: 'daylight', name: 'Daylight', finish: 'flat', case: '#efe9da', accent: '#8a6416',
+    what: 'A warm cream case with dark text, for a room with the sun in it.' },
+  { id: 'bright', name: 'Bright colours', finish: 'flat', case: '#f4f7fb', accent: '#c2185b',
+    what: 'White, with the strongest colours in the set: pink names things, teal is the song, orange is recording.' },
+  { id: 'paper', name: 'Paper grey', finish: 'matte', case: '#f1f2f4', accent: '#1f5f9e',
+    what: 'The quietest light one — paper grey and a single blue, so nothing on screen competes with the singing.' },
+  { id: 'grey', name: 'Studio grey', finish: 'matte', case: '#232528', accent: '#63a8e8',
+    what: 'Neutral dark grey, the colour most recording software is.' },
+  { id: 'contrast', name: 'High contrast', finish: 'flat', case: '#000000', accent: '#ffd400',
+    what: 'Black and white with thick edges, for reading the console from across the room.' },
+  { id: 'vintage', name: 'Vintage', finish: 'matte', case: '#45301e', accent: '#d59a3c',
+    what: 'Warm brown and cream with no shine, like a hardware player on a shelf.' },
+  { id: 'night', name: 'Night', finish: 'matte', case: '#0b0e12', accent: '#b8842f',
+    what: 'Near-black with a dim amber, for working late without being dazzled.' },
+  { id: 'stage', name: 'Stage', finish: 'glossy', case: '#1f1238', accent: '#e0489b',
+    what: 'Deep violet and magenta, the one warm-bright colour the others leave out.' },
 ];
 
 function applySkin(id) {
@@ -1470,6 +1854,10 @@ function applySkin(id) {
   for (const btn of document.querySelectorAll('.skin')) {
     btn.setAttribute('aria-pressed', String(btn.dataset.skin === skin.id));
   }
+  /* What the chosen one is, printed under the row. A grid of coloured squares
+     tells you how each looks and nothing about which to pick. */
+  const note = $('skin-note');
+  if (note) note.textContent = `${skin.name} — ${skin.what}`;
   return skin;
 }
 
@@ -1480,7 +1868,7 @@ function paintSkins(current) {
     const btn = document.createElement('button');
     btn.type = 'button'; btn.className = 'skin'; btn.dataset.skin = skin.id;
     btn.setAttribute('aria-pressed', String(skin.id === current));
-    btn.title = `${skin.name} — ${skin.finish}`;
+    btn.title = `${skin.name} — ${skin.what}`;
 
     const art = document.createElement('span');
     art.className = 'chipart';
@@ -1496,7 +1884,7 @@ function paintSkins(current) {
     btn.append(art, name);
     btn.addEventListener('click', async () => {
       const chosen = applySkin(skin.id);
-      say(`${chosen.name}.`);
+      say(`${chosen.name}. ${chosen.what}`);
       const settings = await window.tva.loadSettings();
       await window.tva.saveSettings({ ...settings, skin: chosen.id });
     });

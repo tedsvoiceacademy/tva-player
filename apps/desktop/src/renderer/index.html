@@ -75,9 +75,20 @@
 
         <!-- The level bar is a piece of the instrument, in the same lit glass as
              the tuner, and it appears for the same reason: the microphone is on. -->
+        <!-- The bar shows the loudest microphone that is on. Which microphone
+             the gain buttons act on is named on the line itself, so nothing
+             here depends on remembering what was clicked. -->
         <div class="level" id="level" hidden>
-          <span class="tlab">Your voice</span>
+          <span class="tlab" id="level-title">Your voice</span>
           <div class="meter" aria-hidden="true"><i id="meter-fill"></i><b id="meter-peak"></b></div>
+          <div class="gainrow">
+            <button type="button" class="gbtn" id="mic-prev" title="The microphone before this one" hidden>◀</button>
+            <span class="gainwho" id="gain-who">Gain</span>
+            <button type="button" class="gbtn" id="mic-next" title="The next microphone" hidden>▶</button>
+            <button type="button" class="gbtn" id="gain-down" title="Turn this microphone down">−</button>
+            <span class="gainval" id="gain-val">0 dB</span>
+            <button type="button" class="gbtn" id="gain-up" title="Turn this microphone up">+</button>
+          </div>
           <span class="levelstate" id="meter-text">Off</span>
         </div>
 
@@ -356,12 +367,25 @@
             </label>
           </div>
           <p class="note" id="mic-warning" hidden></p>
+          <!-- An interface with four microphone inputs hands over four signals
+               at once. This says how many Windows actually gave, and which of
+               them have a microphone worth recording on. -->
+          <h3 class="plab sub">Microphone inputs on that device</h3>
+          <p class="note" id="mic-count">Turn the microphone on to see how many inputs this device has.</p>
+          <div class="miclist" id="mic-list"></div>
+          <p class="note">Each input you tick is recorded to its own file, and one more file holds
+            them all mixed together. Untick an input with nothing plugged into it, or it records
+            silence for the whole lesson.</p>
           <div class="looprow">
             <button type="button" id="defaults-open" class="chip">Make this the app that opens my music</button>
             <span class="note" id="defaults-state">Windows will not let an app do this by itself — it opens Settings so you can confirm it once.</span>
           </div>
           <h3 class="plab sub">How it looks</h3>
           <div class="skins" id="skins"></div>
+          <!-- What the chosen one is, printed rather than hidden in a hover.
+               A row of coloured squares with names under them says how each one
+               looks and nothing about what it is for. -->
+          <p class="note" id="skin-note"></p>
           <p class="note">Each one changes the colours and the finish together — some are
             lit like hardware, some are flat like modern recording software. Your choice
             follows you to your other computer.</p>
@@ -423,6 +447,35 @@
             good run is never lost for want of pressing record.</p>
           <p>While the microphone is on, <b>Your voice</b> appears in the display with a bar
             showing how loud you are. Sing your loudest and keep it out of the red.</p>
+
+          <h3>Turning a microphone up inside the app</h3>
+          <p>Under the bar is a gain switch: <b>−</b> and <b>+</b> move it a decibel at a
+            time, and double-clicking the number puts it back to nothing. It is the app's
+            own gain, on top of whatever your interface is set to, so it is there when the
+            interface has already run out. Turning a microphone up turns the room up with
+            it, so use the least that gets you out of the bottom of the bar.</p>
+          <p>Each microphone keeps its own setting, and the settings are remembered against
+            that interface — plug it back in next week and the levels are where you left
+            them.</p>
+
+          <h3>More than one microphone</h3>
+          <p>An interface with several microphone inputs hands all of them over at once, and
+            the app takes up to eight. <b>Set-up</b> says how many Windows gave and lets you
+            untick any input with nothing plugged into it.</p>
+          <p>One take then writes <b>a file for every microphone, and one more holding them
+            all mixed together</b> — so you can send one singer their own track, or listen
+            back to the room. They share a name and a time, so they sit together in the
+            list. With several microphones on, <b>◀</b> and <b>▶</b> beside the gain switch
+            choose which one it acts on, and the panel says which that is.</p>
+          <p>Two things stay on the first microphone: the tuner, which can only name one
+            note at a time, and <b>Keep last</b>, which saves the mixed sound rather than
+            every microphone separately.</p>
+
+          <h3>Watching what is being recorded</h3>
+          <p>While the microphone is on, the bottom of the waveform becomes a live picture
+            of what is coming in — one lane per microphone, named, scrolling from the right.
+            It turns red while a take is actually being recorded, so at a glance you can see
+            both that sound is arriving and which microphone it is arriving on.</p>
           <p>Takes are listed under <b>Takes</b> and kept as WAV files on this computer.</p>
           <h3>Getting a take out of the app</h3>
           <p>Every take carries two save buttons. <b>Save my voice</b> saves that take on its

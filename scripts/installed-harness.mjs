@@ -441,6 +441,42 @@ try {
   check('the tuner names the note coming in',
     (await page.textContent('#t-note')) === 'A4', await page.textContent('#t-note'));
 
+  console.log('\n--- several microphones at once, from inside the package ---');
+  /* The worklet is a separate file loaded by URL and it now carries the whole
+     multi-microphone path, so an archive breaking it would show up only when
+     Ted plugged his interface in. Three channels are built inside the page and
+     driven through the same door a Clarett goes through. */
+  const several = await page.evaluate(async () => {
+    document.getElementById('mic-open').click();
+    await new Promise((r) => setTimeout(r, 400));
+    const opened = await window.__tvaFakeMics(3, [220, 330, 440]);
+    return opened;
+  }).catch((e) => ({ error: String(e.message ?? e) }));
+  check('three microphone inputs are taken, not folded down to one',
+    !several.error && several.channels === 3 && several.live.length === 3,
+    several.error ?? `${several.channels} channels`);
+
+  const beforeSeveral = await page.evaluate(() => window.tva.listRecordings().then((l) => l.length));
+  await page.click('#rec-new');
+  await page.waitForFunction(
+    () => document.getElementById('lamp-rec').classList.contains('lit'), { timeout: 15000 });
+  await page.waitForTimeout(1400);
+  await page.click('#rec-new');
+  await page.waitForTimeout(700);
+  const written = await page.evaluate(async (before) => {
+    const list = await window.tva.listRecordings();
+    return { made: list.length - before, names: list.slice(0, 4).map((t) => t.name) };
+  }, beforeSeveral);
+  check('one take writes a file per microphone plus a mixed one',
+    written.made === 4
+    && [1, 2, 3].every((n) => written.names.some((x) => x.includes(`(Mic ${n})`)))
+    && written.names.some((x) => x.includes('all mics mixed')),
+    `${written.made} files: ${written.names.join(' | ')}`);
+  await page.evaluate(async () => {
+    document.getElementById('mic-open').click();
+    await new Promise((r) => setTimeout(r, 400));
+  });
+
   console.log('\n--- the media keys ---');
   /* What the app itself reports it managed to claim. Asking Electron whether
      it HAS globalShortcut would pass on a build that never called it. */

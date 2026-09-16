@@ -73,6 +73,7 @@
   --wave-head: #f5f0e1;
   --wave-flat: #16294a;
   --wave-loop: 212, 168, 75;
+  --wave-live: #56c39a;
 
   /* FINISH, not colour. A flat skin sets the glows to none; a matte one also
      drops the grain, so the case stops pretending to be lit glass. */
@@ -598,7 +599,7 @@ body {
    rest of the app, and a bar in a panel is not something you fix by restyling
    the bar. It costs the case no height: .face is a row. */
 .level {
-  flex: 0 0 132px; display: grid; align-content: center; gap: 3px;
+  flex: 0 0 168px; display: grid; align-content: center; gap: 3px;
   border-radius: 10px; padding: 8px 12px; text-align: center;
   background: radial-gradient(120% 160% at 50% 0%, var(--glass-hi) 0%, var(--glass-low) 70%);
   border: 1px solid rgba(0, 0, 0, 0.6);
@@ -607,7 +608,54 @@ body {
 .levelstate {
   font-size: 0.62rem; line-height: 1.25; color: var(--cream); opacity: 0.6;
 }
-@media (max-width: 1080px) { .level { flex-basis: 108px; } }
+/* WIDER WITH SEVERAL MICROPHONES ON, because the row then carries two more
+   buttons — which microphone the gain acts on. Measured: at 168px the six
+   controls wrapped and the number sat on a line of its own. */
+.level.many { flex: 0 0 218px; }
+@media (max-width: 1080px) {
+  .level { flex-basis: 150px; }
+  .level.many { flex-basis: 196px; }
+}
+
+/* The gain switch for one microphone, inside the lit panel beside the bar.
+ *
+ * EVERY SIZE HERE IS FIXED, and that is the point rather than fussiness: the
+ * panel sits in a flex row with the readout and the tuner, so anything that
+ * makes it taller makes the whole case taller — and at 1024 pixels wide the
+ * case has 124 pixels of bench under it before the tabs go off the bottom of
+ * the screen. Left to size itself the row came out at 29 pixels and pushed the
+ * case 5 pixels past where it sits with the microphone off. */
+.gainrow {
+  display: flex; align-items: center; justify-content: center; gap: 3px;
+  height: 17px;
+}
+.gbtn {
+  border: 1px solid rgba(255, 255, 255, 0.16); background: var(--glass-low);
+  color: var(--lit); font: inherit; font-size: 0.68rem; font-weight: 700;
+  line-height: 1; height: 15px; padding: 0 5px; border-radius: 5px; cursor: pointer;
+}
+.gbtn:hover:not(:disabled) { filter: brightness(1.4); }
+.gbtn:disabled { opacity: 0.3; cursor: default; }
+.gainwho {
+  font-size: 0.58rem; font-weight: 700; letter-spacing: 0.08em;
+  text-transform: uppercase; color: var(--gold); opacity: 0.85;
+}
+.gainval {
+  font-family: Consolas, ui-monospace, monospace; font-size: 0.68rem;
+  color: var(--lit); min-width: 3.4rem;
+}
+
+/* One line per microphone input, in Set-up. */
+.miclist { display: grid; gap: 6px; margin: 6px 0 2px; }
+.micline {
+  display: flex; align-items: center; gap: 10px; font-size: 0.82rem;
+  color: var(--cream);
+}
+.micline .micname { font-weight: 600; min-width: 4.2rem; }
+.micline .micgain {
+  font-family: Consolas, ui-monospace, monospace; font-size: 0.78rem;
+  color: var(--lit); opacity: 0.85; min-width: 3.6rem;
+}
 
 .meter {
   position: relative; flex: 1 1 auto; height: 10px; border-radius: 999px;

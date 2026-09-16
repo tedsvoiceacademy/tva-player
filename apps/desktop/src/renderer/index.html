@@ -17,16 +17,20 @@
     </div>
     <input type="search" id="find" class="find" placeholder="Search your songs" aria-label="Search your songs" autocomplete="off">
     <div class="railrow">
-      <button type="button" id="play-all" class="chip">Play them all</button>
-      <label class="vh" for="playlist-pick">A list you saved</label>
-      <select id="playlist-pick" class="mini" aria-label="A list you saved">
-        <option value="">Saved lists…</option>
+      <!-- "Play them all" did not say WHICH songs. It plays the list below,
+           which is what the search box narrows, so the button says that. -->
+      <button type="button" id="play-all" class="chip">Play all songs listed below</button>
+    </div>
+    <div class="railrow">
+      <label class="vh" for="playlist-pick">Open a playlist</label>
+      <select id="playlist-pick" class="mini" aria-label="Open a playlist">
+        <option value="">Open a playlist…</option>
       </select>
-      <button type="button" id="playlist-save" class="chip" title="Keep what is lined up now as a named list">Save this list</button>
+      <button type="button" id="playlist-save" class="chip" title="Keep the songs listed below under a name">Save as a playlist</button>
     </div>
     <div class="railrow" id="listnamerow" hidden>
-      <label class="vh" for="listname">A name for this list</label>
-      <input type="text" id="listname" class="find" maxlength="40" placeholder="Name this list" autocomplete="off">
+      <label class="vh" for="listname">A name for this playlist</label>
+      <input type="text" id="listname" class="find" maxlength="40" placeholder="Name this playlist" autocomplete="off">
       <button type="button" id="listname-ok" class="chip strong">Keep it</button>
       <button type="button" id="listname-no" class="chip">Cancel</button>
     </div>
@@ -40,6 +44,7 @@
       <button type="button" id="open" class="pill wide">
         <span class="ic" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M3 5h6l2 2h10v12H3zm2 4v8h14V9z"/></svg></span>Open a song
       </button>
+      <p class="dropnote">Or drag a song straight into this window.</p>
     </div>
   </aside>
 
@@ -50,10 +55,14 @@
         <div class="readout">
           <div class="r-top">
             <span class="dname" id="now-name">NO SONG OPEN</span>
-            <span class="lamps" aria-hidden="true">
-              <i class="lamp" id="lamp-play" title="Playing"></i>
-              <i class="lamp" id="lamp-loop" title="Repeating a part"></i>
-              <i class="lamp rec" id="lamp-rec" title="Recording"></i>
+            <!-- These were three bare dots. Ted: "There are 3 dots in the upper
+                 right that glow green at various times. I don't understand what
+                 they are." A light with no word on it names nothing, so each
+                 one now says what it is and lights up when it is true. -->
+            <span class="lamps">
+              <span class="lamp" id="lamp-play"><i></i>Playing</span>
+              <span class="lamp" id="lamp-loop"><i></i>Looping</span>
+              <span class="lamp rec" id="lamp-rec"><i></i>Recording</span>
             </span>
           </div>
           <div class="r-clock">
@@ -72,7 +81,7 @@
       </div>
 
       <div class="well">
-        <canvas id="wave" aria-label="The song, drawn from start to end. Click to jump to a spot, or drag across it to mark a part."></canvas>
+        <canvas id="wave" aria-label="The song, drawn from start to end. The left channel is on top and the right channel underneath. Click to jump to a spot, or drag across it to mark a loop."></canvas>
         <div class="ruler" id="ruler" aria-hidden="true"></div>
       </div>
 
@@ -96,26 +105,28 @@
           </button>
         </div>
 
-        <p class="wavehint">Click the wave to jump to a spot.<br>Drag across it to mark a part to repeat.</p>
+        <p class="wavehint">Click the wave to jump. Drag across it to mark a loop.<br>Double-click any dial to put it back to normal.</p>
 
+        <!-- data-centre says which value sits at twelve o'clock, and
+             data-default is where a double-click puts the dial back to. -->
         <div class="bank">
-          <div class="knob" data-knob="speed">
+          <div class="knob" data-knob="speed" data-centre="100" data-default="100">
             <svg class="dial" viewBox="0 0 64 64" aria-hidden="true">
               <circle class="k-track" cx="32" cy="32" r="26"/><circle class="k-fill" cx="32" cy="32" r="26"/>
               <circle class="k-cap" cx="32" cy="32" r="18"/><line class="k-ptr" x1="32" y1="32" x2="32" y2="16"/>
             </svg>
-            <input type="range" id="speed" min="50" max="120" step="1" value="100" aria-label="Speed"/>
+            <input type="range" id="speed" min="25" max="200" step="1" value="100" aria-label="Speed"/>
             <span class="k-name">Speed</span><output class="k-val" id="speed-val">Normal</output>
           </div>
-          <div class="knob" data-knob="key">
+          <div class="knob" data-knob="key" data-centre="0" data-default="0">
             <svg class="dial" viewBox="0 0 64 64" aria-hidden="true">
               <circle class="k-track" cx="32" cy="32" r="26"/><circle class="k-fill" cx="32" cy="32" r="26"/>
               <circle class="k-cap" cx="32" cy="32" r="18"/><line class="k-ptr" x1="32" y1="32" x2="32" y2="16"/>
             </svg>
-            <input type="range" id="key" min="-6" max="6" step="1" value="0" aria-label="Key"/>
-            <span class="k-name">Key</span><output class="k-val" id="key-val">As recorded</output>
+            <input type="range" id="key" min="-6" max="6" step="1" value="0" aria-label="Pitch"/>
+            <span class="k-name">Pitch</span><output class="k-val" id="key-val">As recorded</output>
           </div>
-          <div class="knob" data-knob="balance">
+          <div class="knob" data-knob="balance" data-centre="0" data-default="0">
             <svg class="dial" viewBox="0 0 64 64" aria-hidden="true">
               <circle class="k-track" cx="32" cy="32" r="26"/><circle class="k-fill" cx="32" cy="32" r="26"/>
               <circle class="k-cap" cx="32" cy="32" r="18"/><line class="k-ptr" x1="32" y1="32" x2="32" y2="16"/>
@@ -123,7 +134,7 @@
             <input type="range" id="balance" min="-100" max="100" step="1" value="0" aria-label="Pan"/>
             <span class="k-name">Pan</span><output class="k-val" id="balance-val">Both sides</output>
           </div>
-          <div class="knob" data-knob="volume">
+          <div class="knob" data-knob="volume" data-default="100">
             <svg class="dial" viewBox="0 0 64 64" aria-hidden="true">
               <circle class="k-track" cx="32" cy="32" r="26"/><circle class="k-fill" cx="32" cy="32" r="26"/>
               <circle class="k-cap" cx="32" cy="32" r="18"/><line class="k-ptr" x1="32" y1="32" x2="32" y2="16"/>
@@ -134,109 +145,137 @@
         </div>
       </div>
 
-      <!-- EACH SWITCH SAYS WHAT IT DOES. Three ticked boxes in a row with only
-           their names told Ted nothing, which is a label problem, not his. -->
+      <!-- THE TITLE DOES THE WORK. Ted: "if the title were more explicit and
+           less abstract, it wouldn't take as much description to clarify.
+           Wordiness makes things harder to understand." So each title now says
+           literally what happens, and the line under it is only the catch. -->
       <div class="switches">
         <label class="swx" for="natural">
           <input type="checkbox" id="natural" checked>
-          <span><b>Keep voices sounding natural</b>
-          <em>Only matters when you move the key. Without it, voices go chipmunky going up and growly going down.</em></span>
+          <span><b>Keep voices natural when you move Pitch</b>
+          <em>Off, voices go chipmunky going up and growly going down.</em></span>
         </label>
         <label class="swx" for="lead">
           <input type="checkbox" id="lead">
-          <span><b>Make the lead quieter</b>
-          <em>Turns down whatever sits dead centre in the mix, which is usually the lead singer. The bass and drums usually go quieter too.</em></span>
+          <span><b>Turn the lead singer down</b>
+          <em>Bass and drums sit in the middle too, so they fade as well.</em></span>
         </label>
         <label class="swx" for="onespk">
           <input type="checkbox" id="onespk">
-          <span><b>Send one mix to both speakers</b>
-          <em>For a car stereo or Bluetooth speaker that only carries one side. Turn this on if Pan seems to make the song vanish.</em></span>
+          <span><b>Play the same sound from both speakers</b>
+          <em>For a car or Bluetooth speaker that only carries one side.</em></span>
         </label>
       </div>
     </div>
 
-    <!-- THE BENCH -->
-    <nav class="tabs" role="tablist" aria-label="What you are working on">
-      <button type="button" class="tab on" role="tab" data-tab="loop" aria-selected="true">Repeat a part</button>
+    <!-- THE BENCH. Ted read straight past this strip the first time, so it is
+         now a labelled row of tabs joined to the panel below it. -->
+    <nav class="tabs" role="tablist" aria-label="Sections">
+      <button type="button" class="tab on" role="tab" data-tab="loop" aria-selected="true">Loop</button>
       <button type="button" class="tab" role="tab" data-tab="record" aria-selected="false">Record</button>
       <button type="button" class="tab" role="tab" data-tab="notes" aria-selected="false">Notes</button>
       <button type="button" class="tab" role="tab" data-tab="click" aria-selected="false">Click track</button>
       <button type="button" class="tab" role="tab" data-tab="setup" aria-selected="false">Set-up</button>
+      <button type="button" class="tab" role="tab" data-tab="help" aria-selected="false">Help</button>
     </nav>
 
     <div class="deskwrap">
-      <!-- Repeat a part -->
+      <!-- Loop -->
       <section class="desk" data-panel="loop">
         <div class="panel">
-          <h2 class="plab">The part you are repeating</h2>
+          <h2 class="plab">Loop</h2>
           <div class="loopgrid">
-            <button type="button" id="set-a" class="chip">Mark the start</button>
-            <input type="text" id="loop-a" class="tbox" inputmode="numeric" placeholder="0:00.0" autocomplete="off" aria-label="The part starts at"/>
+            <button type="button" id="set-a" class="chip">Set the loop start</button>
+            <input type="text" id="loop-a" class="tbox" inputmode="numeric" placeholder="0:00.0" autocomplete="off" aria-label="The loop starts at"/>
             <span class="nudge">
-              <button type="button" class="tiny" data-nudge="a" data-by="-0.1" aria-label="Move the start a tenth of a second earlier">−</button>
-              <button type="button" class="tiny" data-nudge="a" data-by="0.1" aria-label="Move the start a tenth of a second later">+</button>
+              <button type="button" class="tiny" data-nudge="a" data-by="-0.1" aria-label="Move the loop start a tenth of a second earlier">−</button>
+              <button type="button" class="tiny" data-nudge="a" data-by="0.1" aria-label="Move the loop start a tenth of a second later">+</button>
             </span>
-            <button type="button" id="set-b" class="chip">Mark the end</button>
-            <input type="text" id="loop-b" class="tbox" inputmode="numeric" placeholder="0:00.0" autocomplete="off" aria-label="The part ends at"/>
+            <button type="button" id="set-b" class="chip">Set the loop end</button>
+            <input type="text" id="loop-b" class="tbox" inputmode="numeric" placeholder="0:00.0" autocomplete="off" aria-label="The loop ends at"/>
             <span class="nudge">
-              <button type="button" class="tiny" data-nudge="b" data-by="-0.1" aria-label="Move the end a tenth of a second earlier">−</button>
-              <button type="button" class="tiny" data-nudge="b" data-by="0.1" aria-label="Move the end a tenth of a second later">+</button>
+              <button type="button" class="tiny" data-nudge="b" data-by="-0.1" aria-label="Move the loop end a tenth of a second earlier">−</button>
+              <button type="button" class="tiny" data-nudge="b" data-by="0.1" aria-label="Move the loop end a tenth of a second later">+</button>
             </span>
           </div>
           <div class="looprow">
-            <button type="button" id="loop-on" class="chip" aria-pressed="false" disabled>Repeating is off</button>
-            <button type="button" id="loop-clear" class="chip">Clear the marks</button>
+            <button type="button" id="loop-on" class="chip" aria-pressed="false" disabled>Looping is off</button>
+            <button type="button" id="loop-clear" class="chip">Clear the loop</button>
           </div>
           <div class="namerow" id="namerow" hidden>
-            <label class="vh" for="secname">A name for this part</label>
-            <input type="text" id="secname" maxlength="40" placeholder="the bridge" autocomplete="off"/>
-            <button type="button" id="save-sec" class="chip strong">Keep this part</button>
+            <label class="vh" for="secname">A name for this loop</label>
+            <input type="text" id="secname" maxlength="40" placeholder="chorus" autocomplete="off"/>
+            <button type="button" id="save-sec" class="chip strong">Save this loop by name</button>
           </div>
+          <p class="note">Saving a loop by name keeps it with the song, so it is here
+            next time you open it. <b>Clear the loop</b> only wipes the two times above —
+            it leaves the saved ones alone.</p>
         </div>
         <div class="panel">
-          <h2 class="plab">Parts you named in this song</h2>
+          <h2 class="plab">Saved loops in this song</h2>
           <div id="sections"></div>
-          <p class="empty" id="sections-empty">Nothing named yet. Mark a start and an end, give it a name, and it will be here next time you open this song.</p>
+          <p class="empty" id="sections-empty">No saved loops yet. Set a start and an end, type a name, then press <b>Save this loop by name</b>.</p>
         </div>
       </section>
 
       <!-- Record -->
-      <section class="desk" data-panel="record" hidden>
+      <section class="desk rec" data-panel="record" hidden>
         <div class="panel">
-          <h2 class="plab">Record yourself</h2>
+          <h2 class="plab">Record</h2>
+          <!-- Ted: "I don't understand how to use the recorder." It is three
+               things in order, so it is numbered and in order. -->
+          <ol class="steps">
+            <li>
+              <span class="num">1</span>
+              <div class="stepbody">
+                <b>Pick your microphone and switch it on</b>
+                <div class="looprow">
+                  <select id="mic-pick" aria-label="Which microphone to record from"></select>
+                  <button type="button" id="mic-open" class="chip">Turn the microphone on</button>
+                </div>
+              </div>
+            </li>
+            <li>
+              <span class="num">2</span>
+              <div class="stepbody">
+                <b>Sing your loudest and keep the bar out of the red</b>
+                <div class="meterrow">
+                  <div class="meter" aria-hidden="true"><i id="meter-fill"></i><b id="meter-peak"></b></div>
+                </div>
+                <span class="metertext" id="meter-text">The microphone is off.</span>
+                <p class="note" id="mic-warning" hidden></p>
+              </div>
+            </li>
+            <li>
+              <span class="num">3</span>
+              <div class="stepbody">
+                <b>Record</b>
+                <div class="looprow">
+                  <button type="button" id="rec-start" class="chip strong" disabled>Start recording</button>
+                  <button type="button" id="rec-stop" class="chip" disabled>Stop and keep it</button>
+                  <label class="sw" for="rec-with-song"><input type="checkbox" id="rec-with-song" checked>
+                    <span>Play the song too</span></label>
+                  <span class="marked" id="rec-time"></span>
+                </div>
+                <span class="note">Use headphones — otherwise the microphone hears the song as well as you.</span>
+              </div>
+            </li>
+          </ol>
+
+          <h3 class="plab sub">Other ways to record</h3>
           <div class="looprow">
-            <label class="pick"><span>Microphone</span>
-              <select id="mic-pick" aria-label="Which microphone to record from"></select>
-            </label>
-            <button type="button" id="mic-open" class="chip">Turn the microphone on</button>
-          </div>
-          <div class="meterrow">
-            <div class="meter" aria-hidden="true"><i id="meter-fill"></i><b id="meter-peak"></b></div>
-            <span class="metertext" id="meter-text">The microphone is off.</span>
-          </div>
-          <div class="looprow">
-            <button type="button" id="rec-start" class="chip strong" disabled>Start recording</button>
-            <button type="button" id="rec-stop" class="chip" disabled>Stop and keep it</button>
             <button type="button" id="rec-last" class="chip" disabled title="Save what the microphone has already heard">Keep the last 2 minutes</button>
-            <span class="marked" id="rec-time"></span>
+            <button type="button" id="rec-system" class="chip">Record what the computer is playing</button>
           </div>
-          <div class="looprow">
-            <label class="sw" for="rec-with-song"><input type="checkbox" id="rec-with-song" checked>
-              <span>Play the song while I record</span></label>
-            <span class="note">Use headphones — through speakers the microphone picks the song up too.</span>
-          </div>
-          <p class="note" id="mic-warning" hidden></p>
+          <span class="note">Keeping the last 2 minutes saves what the microphone already heard,
+            so you never have to have pressed record first. Recording the computer makes Windows
+            show its screen-sharing bar, which is normal.</span>
           <div class="looprow">
             <label class="pick"><span>Line takes up by</span>
               <input type="number" id="latency" class="tbox short" min="-500" max="500" step="5" value="0" aria-label="Line takes up by, in milliseconds"/>
             </label>
-            <span class="note">Your voice reaches the computer a little after you sing it.
-              If a take sits late against the song, put the delay in here in thousandths
-              of a second and it is shifted back when it is saved.</span>
-          </div>
-          <div class="looprow">
-            <button type="button" id="rec-system" class="chip">Record what the computer is playing instead</button>
-            <span class="note">Windows shows its screen-sharing bar while this runs. That is normal.</span>
+            <span class="note">Your voice reaches the computer a little after you sing it. If a take
+              sits late against the song, put that delay here in thousandths of a second.</span>
           </div>
         </div>
         <div class="panel">
@@ -300,6 +339,64 @@
             <span id="folders"></span>
           </div>
           <p class="note" id="where"></p>
+        </div>
+      </section>
+
+      <!-- Help. Ted: "When I DO have a question, where are the instructions,
+           help menu, information hover buttons or anything that would be
+           helpful?" Everything, printed, on one page, with no hovering. -->
+      <section class="desk wide1" data-panel="help" hidden>
+        <div class="panel help">
+          <h2 class="plab">Help</h2>
+
+          <h3>Getting a song in</h3>
+          <p><b>Drag it into the window</b> from File Explorer, or press <b>Open a song</b>
+            at the bottom left. <b>Add a folder</b> lists everything playable in a folder
+            down the left side for good; nothing is copied or moved.</p>
+          <p><b>Play all songs listed below</b> plays the list on the left, top to bottom.
+            If you have typed in the search box it plays what the search left showing.</p>
+          <p>A <b>playlist</b> is that list kept under a name. <b>Save as a playlist</b>
+            names it; <b>Open a playlist…</b> loads one back and starts playing it.</p>
+
+          <h3>The four dials</h3>
+          <p><b>Speed</b> makes the song slower or faster without changing its pitch.
+            Straight up is normal. All the way down is quarter speed, all the way up is double.</p>
+          <p><b>Pitch</b> moves the song up or down in half steps without changing its speed.</p>
+          <p><b>Pan</b> turns one side of the recording down. Straight up plays both sides.</p>
+          <p><b>Volume</b> is how loud the song plays.</p>
+          <p><b>Double-click any dial to put it back to normal.</b> You can also click a dial
+            and use the arrow keys.</p>
+
+          <h3>The three lights by the song name</h3>
+          <p><b>Playing</b> lights while the song is running. <b>Looping</b> lights while a
+            loop is repeating. <b>Recording</b> lights red while the microphone is recording.</p>
+
+          <h3>Looping a part</h3>
+          <p>Drag across the wave to mark a loop, or use <b>Set the loop start</b> and
+            <b>Set the loop end</b>, which take whatever time the song is at. You can also
+            type the times, to the tenth of a second, and nudge them with − and +.</p>
+          <p><b>Save this loop by name</b> keeps it with the song, so "chorus" is still there
+            next time you open it. <b>Clear the loop</b> only wipes the two times — your saved
+            loops are untouched.</p>
+
+          <h3>Recording</h3>
+          <p>Open the <b>Record</b> tab and work down the three numbered steps: pick the
+            microphone and turn it on, watch the bar while you sing, then press
+            <b>Start recording</b>. The round red button in the transport does the same thing.</p>
+          <p>Takes are kept as WAV files on this computer. <b>Save it with the song</b> makes a
+            single file of your take and the song together, for sending to somebody.</p>
+
+          <h3>The wave</h3>
+          <p>On a stereo song the left channel is drawn on top and the right channel underneath,
+            so you can see which side a part is on. A mono song is drawn as one.</p>
+
+          <h3>Notes and the click track</h3>
+          <p>A <b>note</b> is pinned to the moment the song is at; click it later to jump there.
+            The <b>click track</b> plays a metronome over the song, with a count-in first.</p>
+
+          <h3>Where your things are kept</h3>
+          <p>Loops, notes and playlists follow you between computers through OneDrive. Takes stay
+            on the computer that made them. The exact folders are printed under <b>Set-up</b>.</p>
         </div>
       </section>
     </div>

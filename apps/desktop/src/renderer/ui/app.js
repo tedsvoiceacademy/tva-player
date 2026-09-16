@@ -49,9 +49,9 @@ function restingLine() {
   if (settings.speed !== 1) bits.push(`${Math.round(settings.speed * 100)}% speed`);
   if (settings.halfSteps !== 0) bits.push(keyLabel(settings.halfSteps).toLowerCase());
   if (settings.balance !== 0) bits.push(balanceLabel(settings.balance).toLowerCase());
-  if (settings.leadQuieter) bits.push('lead quieter');
+  if (settings.leadQuieter) bits.push('lead turned down');
   if (settings.looping && settings.loopA != null && settings.loopB != null) {
-    bits.push(`repeating ${formatTime(settings.loopA, true)}–${formatTime(settings.loopB, true)}`);
+    bits.push(`looping ${formatTime(settings.loopA, true)}–${formatTime(settings.loopB, true)}`);
   }
   return bits.length ? bits.join(' · ') : 'Playing as recorded.';
 }
@@ -72,15 +72,32 @@ const balanceLabel = (b) => {
 
 /* ---- Saving ------------------------------------------------------------- */
 
+/* Saving is held back for 900ms so that turning a dial does not write a file on
+   every pixel. That delay made a real mess of switching songs, and it took a
+   check going red once in several runs to see it: what got written was read at
+   the moment the timer FIRED, so a change to one song that had not been written
+   yet was saved into the next song's file instead, position and all — and the
+   change to the first song was lost.
+ *
+ * So what to write is taken NOW, and opening a song writes any waiting one
+ * first. */
+let pendingSave = null;
+
 function saveSoon() {
   if (!song) return;
+  pendingSave = { ...file, settings, lastPositionSec: player.currentTime };
   clearTimeout(saveTimer);
-  saveTimer = setTimeout(async () => {
-    const saved = await window.tva.saveSong({
-      ...file, settings, lastPositionSec: player.currentTime,
-    });
-    if (saved) file = saved;
-  }, 900);
+  saveTimer = setTimeout(flushSave, 900);
+}
+
+async function flushSave() {
+  clearTimeout(saveTimer);
+  const snapshot = pendingSave;
+  pendingSave = null;
+  if (!snapshot) return;
+  const saved = await window.tva.saveSong(snapshot);
+  // Only adopt it if it is still the song on screen.
+  if (saved && song && song.songKey === saved.songKey) file = saved;
 }
 
 /* ---- The practice engine ------------------------------------------------
@@ -127,10 +144,36 @@ function pushLoop() {
 
 /* ---- Opening ------------------------------------------------------------ */
 
-async function openSong(next) {
+/* OPENING ONE SONG AT A TIME.
+ *
+ * Opening a song waits several times — for the last song's settings to be
+ * written, for the file's length to arrive, for its stored settings to be read.
+ * Two opens close together therefore INTERLEAVE, and the older one comes back
+ * to life partway through the newer one and carries on setting things: the
+ * length, the dials, and `peaks = null`, which blanks the wave of a song that
+ * had already drawn it.
+ *
+ * It showed up as the waveform being blank now and again, which reads as the
+ * app being slow rather than as a fault. So the opens are queued: the second
+ * one starts when the first has finished, and nothing is ever half-applied. */
+let openChain = Promise.resolve();
+
+function openSong(next) {
+  openChain = openChain.catch(() => {}).then(() => openSongNow(next));
+  return openChain;
+}
+
+async function openSongNow(next) {
+  await flushSave();               // whatever the last song was owed, before it goes
   song = next;
   say('Opening that song…');
   $('now-name').textContent = next.name.toUpperCase();
+  /* The old song's wave goes the moment its name does. Left until later, the
+     window showed one song's name over another song's picture for as long as
+     the file took to open — and a check that waited for the wave to appear was
+     answered by the wave that was already there. */
+  peaks = null;
+  drawWave();
 
   try {
     const { duration: d } = await player.open(next);
@@ -164,7 +207,6 @@ async function openSong(next) {
     say('Ready. Press play.');
   }
 
-  peaks = null;
   $('play').disabled = false;
   paintTimes(player.currentTime);
   drawWave();
@@ -184,14 +226,41 @@ async function openSong(next) {
 /* ---- Painting ----------------------------------------------------------- */
 
 const SWEEP = 122.5;                       // three-quarters of a radius-26 circle
-const KNOB_CENTRE = { balance: 0.5 };      // Pan reads from the middle out
+
+/* WHERE TWELVE O'CLOCK IS.
+ *
+ * Ted asked for Speed to run from a quarter speed to double, with normal
+ * straight up. Those are not the same distance from 100, so a dial that maps
+ * its range evenly would put normal at about four o'clock. A knob that carries
+ * data-centre therefore bends in the middle: the lower half of the sweep covers
+ * min→centre and the upper half covers centre→max. The VALUE the control
+ * reports is untouched — only where the dial draws it changes. */
+function knobFraction(knob, value) {
+  const input = knob.querySelector('input');
+  const min = Number(input.min), max = Number(input.max);
+  if (!(max > min)) return 0;
+  const centre = knob.dataset.centre === undefined ? null : Number(knob.dataset.centre);
+  if (centre === null) return (value - min) / (max - min);
+  if (value <= centre) return centre > min ? 0.5 * ((value - min) / (centre - min)) : 0;
+  return max > centre ? 0.5 + 0.5 * ((value - centre) / (max - centre)) : 1;
+}
+
+function knobValue(knob, frac) {
+  const input = knob.querySelector('input');
+  const min = Number(input.min), max = Number(input.max);
+  const centre = knob.dataset.centre === undefined ? null : Number(knob.dataset.centre);
+  const f = Math.max(0, Math.min(1, frac));
+  if (centre === null) return min + f * (max - min);
+  return f <= 0.5 ? min + (f / 0.5) * (centre - min)
+                  : centre + ((f - 0.5) / 0.5) * (max - centre);
+}
 
 function paintKnob(input) {
   const knob = input.closest('.knob');
   if (!knob) return;
-  const min = Number(input.min), max = Number(input.max);
-  const frac = max > min ? (Number(input.value) - min) / (max - min) : 0;
-  const from = KNOB_CENTRE[knob.dataset.knob] ?? 0;
+  const frac = knobFraction(knob, Number(input.value));
+  const from = knob.dataset.centre === undefined
+    ? 0 : knobFraction(knob, Number(knob.dataset.centre));
   const lo = Math.min(frac, from);
   const fill = knob.querySelector('.k-fill');
   fill.style.strokeDasharray = `${Math.abs(frac - from) * SWEEP} 1000`;
@@ -228,7 +297,7 @@ function paintLoop() {
   const onBtn = $('loop-on');
   onBtn.disabled = !both;
   onBtn.setAttribute('aria-pressed', String(settings.looping));
-  onBtn.textContent = settings.looping ? 'Repeating is on' : 'Repeating is off';
+  onBtn.textContent = settings.looping ? 'Looping is on' : 'Looping is off';
   $('namerow').hidden = !both;
 }
 
@@ -255,7 +324,7 @@ function paintSections() {
     left.append(name, when);
 
     const play = document.createElement('button');
-    play.type = 'button'; play.className = 'chip'; play.textContent = 'Play this part';
+    play.type = 'button'; play.className = 'chip'; play.textContent = 'Play this loop';
     play.addEventListener('click', async () => {
       settings = sanitizePlayerSettings({ ...settings, loopA: sec.a, loopB: sec.b, looping: true });
       paintLoop(); drawWave();
@@ -328,31 +397,56 @@ const PEAK_COUNT = 640;
 let peakCtx = null;
 function getPeakContext() {
   if (!peakCtx) {
-    peakCtx = new OfflineAudioContext({ numberOfChannels: 1, length: 1, sampleRate: 8000 });
+    /* Two channels, because the wave is drawn a side at a time. */
+    peakCtx = new OfflineAudioContext({ numberOfChannels: 2, length: 1, sampleRate: 8000 });
   }
   return peakCtx;
+}
+
+/* EACH SIDE IS MEASURED SEPARATELY.
+ *
+ * Ted: "The audio visualization window needs to be able to see both right and
+ * left channels separately when a stereo track - not one image so it looks
+ * mono." That matters here more than in most players, because Pan and Turn the
+ * lead singer down both act on the difference between the sides — so seeing
+ * that a part sits on one side is the reason to reach for the dial.
+ *
+ * Both sides are scaled by the SAME ceiling, not one each. Normalising them
+ * apart would draw a quiet side as loud as a loud one, which is the one thing
+ * this picture must not do. */
+function channelPeaks(data, count) {
+  const per = Math.max(1, Math.floor(data.length / count));
+  const out = new Float32Array(count);
+  for (let i = 0; i < count; i++) {
+    let top = 0;
+    const start = i * per;
+    for (let j = start; j < start + per && j < data.length; j++) {
+      const v = Math.abs(data[j]);
+      if (v > top) top = v;
+    }
+    out[i] = top;
+  }
+  return out;
 }
 
 async function computePeaks(url) {
   try {
     const bytes = await (await fetch(url)).arrayBuffer();
     const buf = await getPeakContext().decodeAudioData(bytes);
-    const data = buf.getChannelData(0);
-    const per = Math.max(1, Math.floor(data.length / PEAK_COUNT));
-    const out = new Float32Array(PEAK_COUNT);
+    const left = channelPeaks(buf.getChannelData(0), PEAK_COUNT);
+    const right = buf.numberOfChannels > 1
+      ? channelPeaks(buf.getChannelData(1), PEAK_COUNT) : null;
+
     let ceiling = 0.01;
     for (let i = 0; i < PEAK_COUNT; i++) {
-      let top = 0;
-      const start = i * per;
-      for (let j = start; j < start + per && j < data.length; j++) {
-        const v = Math.abs(data[j]);
-        if (v > top) top = v;
-      }
-      out[i] = top;
-      if (top > ceiling) ceiling = top;
+      if (left[i] > ceiling) ceiling = left[i];
+      if (right && right[i] > ceiling) ceiling = right[i];
     }
-    for (let i = 0; i < PEAK_COUNT; i++) out[i] /= ceiling;
-    return out;
+    for (let i = 0; i < PEAK_COUNT; i++) {
+      left[i] /= ceiling;
+      if (right) right[i] /= ceiling;
+    }
+    return { left, right };
   } catch {
     return null;   // a flat line is a worse wave, not a broken app
   }
@@ -384,12 +478,31 @@ function drawWave() {
   }
 
   if (peaks) {
-    const bw = w / peaks.length;
-    for (let i = 0; i < peaks.length; i++) {
-      const tall = Math.max(1.5, peaks[i] * (h - 14));
-      g.fillStyle = (i / peaks.length) <= played ? '#d4a84b' : '#33507f';
-      g.fillRect(i * bw, mid - tall / 2, Math.max(1, bw - 0.6), tall);
+    const bw = w / peaks.left.length;
+    const lanes = peaks.right
+      ? [{ data: peaks.left, mid: h * 0.27, room: h * 0.24, tag: 'L' },
+         { data: peaks.right, mid: h * 0.73, room: h * 0.24, tag: 'R' }]
+      : [{ data: peaks.left, mid, room: h * 0.44, tag: 'MONO' }];
+
+    for (const lane of lanes) {
+      for (let i = 0; i < lane.data.length; i++) {
+        const tall = Math.max(1.5, lane.data[i] * lane.room * 2);
+        g.fillStyle = (i / lane.data.length) <= played ? '#d4a84b' : '#33507f';
+        g.fillRect(i * bw, lane.mid - tall / 2, Math.max(1, bw - 0.6), tall);
+      }
     }
+
+    // The line between the two sides, and a word saying which is which.
+    if (peaks.right) {
+      g.fillStyle = 'rgba(255,255,255,0.10)';
+      g.fillRect(0, mid, w, 1);
+    }
+    /* The lettering sits just INSIDE the top of its own lane. Placed above it,
+       the baseline of the upper one landed off the top of the canvas and the
+       letter never appeared at all. */
+    g.font = '600 9px Consolas, ui-monospace, monospace';
+    g.fillStyle = 'rgba(245,240,225,0.5)';
+    for (const lane of lanes) g.fillText(lane.tag, 4, Math.max(9, lane.mid - lane.room + 8));
   } else {
     g.fillStyle = '#16294a';
     g.fillRect(0, mid - 1, w, 2);
@@ -482,25 +595,43 @@ function wireWave() {
 }
 
 /* Turning a dial is a vertical drag, which is what a real one does under a
-   finger. A full sweep takes 150px, so a small move is a small change. */
+   finger. A full sweep takes 150px, so a small move is a small change.
+ *
+ * The drag works in dial positions rather than in values, so a dial that bends
+ * in the middle turns evenly under the hand instead of racing through one half.
+ *
+ * DOUBLE-CLICK PUTS A DIAL BACK to what data-default says, which is what every
+ * dial on a desk does and what Ted expected of these. */
 function wireKnobs() {
   for (const knob of document.querySelectorAll('.knob')) {
     const input = knob.querySelector('input');
+    const step = Number(input.step) || 1;
+    const min = Number(input.min), max = Number(input.max);
+
+    const put = (value) => {
+      const next = Math.max(min, Math.min(max, Math.round(value / step) * step));
+      if (String(next) === input.value) return;
+      input.value = String(next);
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+    };
+
+    knob.addEventListener('dblclick', (e) => {
+      e.preventDefault();
+      if (knob.dataset.default === undefined) return;
+      put(Number(knob.dataset.default));
+      say('');
+    });
+
     let drag = null;
     knob.addEventListener('pointerdown', (e) => {
-      drag = { y: e.clientY, start: Number(input.value), id: e.pointerId };
+      if (e.detail > 1) return;          // leave the second click to dblclick
+      drag = { y: e.clientY, from: knobFraction(knob, Number(input.value)), id: e.pointerId };
       try { knob.setPointerCapture(e.pointerId); } catch {}
       input.focus(); e.preventDefault();
     });
     knob.addEventListener('pointermove', (e) => {
       if (!drag || e.pointerId !== drag.id) return;
-      const min = Number(input.min), max = Number(input.max);
-      const step = Number(input.step) || 1;
-      const raw = drag.start + (drag.y - e.clientY) * ((max - min) / 150);
-      const next = Math.max(min, Math.min(max, Math.round(raw / step) * step));
-      if (String(next) === input.value) return;
-      input.value = String(next);
-      input.dispatchEvent(new Event('input', { bubbles: true }));
+      put(knobValue(knob, drag.from + (drag.y - e.clientY) / 150));
     });
     const end = (e) => {
       if (!drag || e.pointerId !== drag.id) return;
@@ -621,10 +752,10 @@ $('loop-clear').addEventListener('click', () => {
 
 $('save-sec').addEventListener('click', () => {
   const name = $('secname').value.trim();
-  if (!name) { say('Give the part a name first.'); $('secname').focus(); return; }
+  if (!name) { say('Type a name for the loop first.'); $('secname').focus(); return; }
   if (settings.loopA == null || settings.loopB == null) return;
   if ((settings.sections ?? []).length >= MAX_SECTIONS) {
-    say(`That is as many parts as one song can hold (${MAX_SECTIONS}). Remove one first.`);
+    say(`That is as many saved loops as one song can hold (${MAX_SECTIONS}). Remove one first.`);
     return;
   }
   const next = [...(settings.sections ?? []), { name, a: settings.loopA, b: settings.loopB }];
@@ -685,6 +816,46 @@ window.tva.onReady(async (info) => {
   });
 });
 
+/* DRAGGING A SONG IN.
+ *
+ * Both handlers must cancel the event. Left alone, Electron treats a dropped
+ * file as a link to follow and REPLACES the whole page with it — the app would
+ * appear to vanish and be replaced by a download.
+ *
+ * dragenter and dragleave are counted rather than trusted one for one, because
+ * moving the pointer across a child element fires a leave for the parent and
+ * the outline would flicker off while the file is still over the window. */
+function wireDrop() {
+  let depth = 0;
+  const surface = document.getElementById('tp');
+  const show = (on) => surface.classList.toggle('dropping', on);
+
+  window.addEventListener('dragover', (e) => { e.preventDefault(); });
+  window.addEventListener('dragenter', (e) => {
+    e.preventDefault();
+    depth += 1;
+    if (e.dataTransfer?.types?.includes('Files')) show(true);
+  });
+  window.addEventListener('dragleave', (e) => {
+    e.preventDefault();
+    depth = Math.max(0, depth - 1);
+    if (depth === 0) show(false);
+  });
+  window.addEventListener('drop', async (e) => {
+    e.preventDefault();
+    depth = 0; show(false);
+    const files = [...(e.dataTransfer?.files ?? [])];
+    if (!files.length) return;
+    const paths = files.map((f) => window.tva.pathForFile(f)).filter(Boolean);
+    const opened = await window.tva.openDropped(paths);
+    if (!opened) {
+      say(files.length === 1
+        ? 'That file is not a kind of audio this app can play.'
+        : 'None of those files are a kind of audio this app can play.');
+    }
+  });
+}
+
 window.addEventListener('resize', () => { drawWave(); });
 
 /* What the test harness reads to check the engine rather than the labels.
@@ -700,9 +871,14 @@ window.__tvaFakeDuration = (seconds) => { duration = seconds; };
 window.__tvaOpenFirstArg = () => (firstArgSong ? openSong(firstArgSong) : null);
 window.__tvaEngineStarts = () => player.engineStarts;
 window.__tvaSpeed = () => settings.speed;
+/* 0 until the shape of the song has been worked out, then 1 for a mono file
+   and 2 for a stereo one. A check that waits on pixels alone cannot tell a
+   wave that has not arrived yet from a flat line, and passed on the flat one. */
+window.__tvaWaveLanes = () => (peaks ? (peaks.right ? 2 : 1) : 0);
 
 wireKnobs();
 wireWave();
+wireDrop();
 paintControls();
 paintSections();
 drawWave();
@@ -1210,7 +1386,7 @@ async function loadPlaylists() {
   const pick = $('playlist-pick');
   pick.textContent = '';
   const first = document.createElement('option');
-  first.value = ''; first.textContent = 'Saved lists…';
+  first.value = ''; first.textContent = 'Open a playlist…';
   pick.append(first);
   for (const name of Object.keys(lists)) {
     const opt = document.createElement('option');

@@ -14,7 +14,12 @@ import { pathToFileURL } from 'node:url';
  * inside the app. */
 export async function makeMp3(path, opts = {}) {
   const { Mp3Encoder } = await import('@breezystack/lamejs');
-  const { seconds = 6, sampleRate = 44100, left = 440, right = 660, shape = false } = opts;
+  /* rightGain turns one side down, which is how a check can tell that the two
+     halves of the waveform picture really come from the two channels and not
+     from the same one drawn twice. */
+  const {
+    seconds = 6, sampleRate = 44100, left = 440, right = 660, shape = false, rightGain = 1,
+  } = opts;
   const frames = Math.round(seconds * sampleRate);
   const l = new Int16Array(frames);
   const r = new Int16Array(frames);
@@ -24,7 +29,7 @@ export async function makeMp3(path, opts = {}) {
       ? 0.25 + 0.75 * Math.abs(Math.sin(t * 0.21)) * (0.55 + 0.45 * Math.abs(Math.sin(t * 1.7)))
       : 1;
     l[i] = Math.round(Math.sin(2 * Math.PI * left * t) * 0.4 * env * 32767);
-    r[i] = Math.round(Math.sin(2 * Math.PI * right * t) * 0.4 * env * 32767);
+    r[i] = Math.round(Math.sin(2 * Math.PI * right * t) * 0.4 * env * rightGain * 32767);
   }
 
   const encoder = new Mp3Encoder(2, sampleRate, 128);

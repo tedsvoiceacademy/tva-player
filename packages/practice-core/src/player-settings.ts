@@ -28,7 +28,7 @@ export type LoopSection = {
 };
 
 export type PlayerSettings = {
-  /** 0.5 to 1.2. 1 is the recording's own speed; the key does not change. */
+  /** 0.25 to 2. 1 is the recording's own speed; the pitch does not change. */
   speed: number;
   /** -6 to 6 half steps. */
   halfSteps: number;
@@ -100,7 +100,10 @@ export function sanitizePlayerSettings(raw: unknown): PlayerSettings {
   const looping = loopA != null && loopB != null ? o.looping === true : false;
 
   return {
-    speed: num(o.speed, d.speed, 0.5, 1.2),
+    /* Ted asked for a quarter speed up to double, with normal straight up on
+       the dial. The dial bends in its middle to put normal at twelve o'clock;
+       the range itself is simply wider than the members player's. */
+    speed: num(o.speed, d.speed, 0.25, 2),
     halfSteps: Math.round(num(o.halfSteps, d.halfSteps, -6, 6)),
     balance: num(o.balance, d.balance, -1, 1),
     volume: num(o.volume, d.volume, 0, 1),

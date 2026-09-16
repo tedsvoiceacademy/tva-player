@@ -38,22 +38,29 @@ rest of the list plays after it. **Play them all** starts at the top. **Save
 this list** keeps what is lined up under a name.
 
 **Opening a file directly.** Double-click any MP3, M4A, WAV, FLAC, AAC or OGG in
-File Explorer. Select several and they all play in turn.
+File Explorer. Select several and they all play in turn. You can also **drag a
+song straight into the window**.
 
 **The practice controls.**
 
 | Control | What it does |
 |---|---|
-| Speed | Slows the song down without changing its key |
-| Key | Moves the key without changing the speed |
+| Speed | Slower or faster without changing the pitch. Straight up is normal; the ends are quarter speed and double |
+| Pitch | Up or down in half steps without changing the speed |
 | Pan | Turns one side of the recording down |
 | Volume | How loud it plays |
-| Keep voices sounding natural | Stops voices going chipmunky when you move the key |
-| Make the lead quieter | Turns down whatever sits dead centre in the mix |
-| Send one mix to both speakers | For a car stereo that only carries one side |
+| Keep voices natural when you move Pitch | Stops voices going chipmunky |
+| Turn the lead singer down | Removes what sits dead centre; bass and drums fade too |
+| Play the same sound from both speakers | For a car stereo that only carries one side |
 
-**Repeat a part.** Drag across the waveform, or type the times to the tenth of a
-second and nudge them. Name a part and it is there next time you open that song.
+**Double-click any dial to put it back to normal.**
+
+**Loop a part.** Drag across the waveform, or type the times to the tenth of a
+second and nudge them. Save a loop by name and it is there next time you open
+that song.
+
+**The waveform.** On a stereo song the left channel is drawn on top and the
+right underneath, so you can see which side a part sits on.
 
 **Record.** Turn the microphone on, watch the level, and record — on its own or
 with the song playing. **Keep the last 2 minutes** saves what the microphone
@@ -65,6 +72,9 @@ record what the computer itself is playing. Takes are kept as WAV files.
 **Click track.** A metronome over the song, with a count-in.
 
 **The tuner** appears while the microphone is on and names the note being sung.
+
+**Help.** There is a **Help** tab inside the app with all of this in it, so you
+never have to come back to this file.
 
 ## Where things are kept
 

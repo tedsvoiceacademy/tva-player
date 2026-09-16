@@ -34,6 +34,16 @@ const extraSongs = [join(work, 'Second.mp3'), join(work, 'Third.wav')];
 await makeMp3(extraSongs[0], { seconds: 3 });
 makeSong(extraSongs[1], { seconds: 3 });
 
+/* One side deliberately quieter than the other, so the two halves of the
+   waveform picture can be told apart. With a normal test tone both sides are
+   identical and drawing the same channel twice would look perfect. */
+const oneSidedPath = join(work, 'One Sided.mp3');
+await makeMp3(oneSidedPath, { seconds: 4, rightGain: 0.25 });
+const droppedPath = join(work, 'Dropped In.mp3');
+await makeMp3(droppedPath, { seconds: 3 });
+const notAudioPath = join(work, 'notes.txt');
+await writeFile(notAudioPath, 'not a song');
+
 /* The negative control flips one sign in the audio graph: the right side of the
    lead-quieter tail is added to the left instead of being subtracted from it.
    Nothing throws, the song still plays, and the only way to notice is to
@@ -54,6 +64,20 @@ if (NEGATIVE) {
     'midR.gain.value = MIDDLE_CANCEL_GAIN;');
   if (broken === original) { console.error('negative control did not apply'); process.exit(1); }
   await writeFile(graphPath, broken);
+}
+
+/* A SECOND CONTROL, for the picture rather than the sound. The graph flip above
+   cannot reach the waveform, so the stereo check would pass whatever happened.
+   This one draws the lower half of the wave from the LEFT channel — which is
+   precisely the mono-looking picture Ted asked to be rid of, and it looks
+   entirely reasonable on screen. */
+const uiPath = join(ROOT, 'apps/desktop/dist/renderer/ui/app.js');
+const uiOriginal = await readFile(uiPath, 'utf8');
+if (NEGATIVE) {
+  const broken = uiOriginal.replace('{ data: peaks.right, mid: h * 0.73',
+    '{ data: peaks.left, mid: h * 0.73');
+  if (broken === uiOriginal) { console.error('wave control did not apply'); process.exit(1); }
+  await writeFile(uiPath, broken);
 }
 
 /* Its own data directory, for two reasons that both bite on CI.
@@ -177,6 +201,61 @@ try {
     check('and the song ends up at the speed the knob was left at',
       await page.evaluate(() => window.__tvaSpeed?.() === 0.6),
       `engine is at ${await page.evaluate(() => window.__tvaSpeed?.())}`);
+  }
+
+  console.log('\n--- the dials themselves ---');
+  {
+    /* DOUBLE-CLICK PUTS A DIAL BACK. Ted asked for it and every dial on a desk
+       does it. The drag above left Speed at 60%, so this has something real to
+       undo rather than confirming a dial that was already at its default. */
+    await page.dblclick('.knob[data-knob="speed"]');
+    await page.waitForFunction(
+      () => document.getElementById('speed-val').textContent === 'Normal', { timeout: 10000 });
+    check('double-clicking a dial puts it back to normal',
+      await page.evaluate(() => window.__tvaSpeed?.() === 1),
+      `speed is ${await page.evaluate(() => window.__tvaSpeed?.())}`);
+
+    /* WHERE TWELVE O'CLOCK IS. Speed runs 25% to 200%, and Ted asked for normal
+       to sit straight up. Those are not the same distance from 100, so a dial
+       mapping its range evenly would draw normal at about four o'clock. This
+       reads the pointer's actual rotation off the screen: straight up is 0deg,
+       and the sweep runs -135deg to +135deg. */
+    const pointerAngle = (id) => page.evaluate((knobId) => {
+      const line = document.querySelector(`.knob[data-knob="${knobId}"] .k-ptr`);
+      const m = /rotate\((-?[\d.]+)deg\)/.exec(line.style.transform ?? '');
+      return m ? Number(m[1]) : null;
+    }, id);
+
+    check('normal speed sits straight up on the dial, not off to one side',
+      Math.abs(await pointerAngle('speed')) < 0.01,
+      `pointer at ${await pointerAngle('speed')}deg`);
+
+    await page.evaluate(() => {
+      const el = document.getElementById('speed');
+      el.value = '25';
+      el.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    check('a quarter speed is reachable, and is the far end of the dial',
+      await page.evaluate(() => window.__tvaSpeed?.() === 0.25)
+        && Math.abs((await pointerAngle('speed')) + 135) < 0.01,
+      `speed ${await page.evaluate(() => window.__tvaSpeed?.())}, pointer ${await pointerAngle('speed')}deg`);
+
+    await page.evaluate(() => {
+      const el = document.getElementById('speed');
+      el.value = '200';
+      el.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    check('and double speed is the other end',
+      await page.evaluate(() => window.__tvaSpeed?.() === 2)
+        && Math.abs((await pointerAngle('speed')) - 135) < 0.01,
+      `speed ${await page.evaluate(() => window.__tvaSpeed?.())}, pointer ${await pointerAngle('speed')}deg`);
+
+    await page.dblclick('.knob[data-knob="speed"]');
+    await page.waitForFunction(
+      () => document.getElementById('speed-val').textContent === 'Normal', { timeout: 10000 });
+
+    check('the pitch dial says Pitch, which is what Ted asked it to say',
+      (await page.textContent('.knob[data-knob="key"] .k-name')).trim() === 'Pitch');
   }
 
   console.log('\n--- marking a part and naming it ---');
@@ -420,9 +499,14 @@ try {
       { timeout: 15000 });
   }
 
+  /* How many songs the launch itself delivered. Read here rather than at the
+     end: the counter keeps counting, and later checks open songs of their own. */
+  const launchOpened = await page.evaluate(() => window.__tvaOpenedCount ?? 0);
+
   console.log('\n--- the tabs ---');
   {
-    for (const [tab, panel] of [['record', 'record'], ['notes', 'notes'], ['click', 'click'], ['loop', 'loop']]) {
+    for (const [tab, panel] of [['record', 'record'], ['notes', 'notes'], ['click', 'click'],
+      ['setup', 'setup'], ['help', 'help'], ['loop', 'loop']]) {
       await page.click(`.tab[data-tab="${tab}"]`);
       const shown = await page.evaluate(() =>
         [...document.querySelectorAll('[data-panel]')]
@@ -432,6 +516,159 @@ try {
         shown.length === 1 && shown[0] === panel,
         `showing ${JSON.stringify(shown)}`);
     }
+  }
+
+  console.log('\n--- the wave shows both sides of a stereo song ---');
+  {
+    /* Ted: "The audio visualization window needs to be able to see both right
+       and left channels separately when a stereo track - not one image so it
+       looks mono."
+     *
+       This reads the PICTURE, not the numbers behind it. The song has its right
+       side at a quarter of the left, so the lower half of the wave must be
+       visibly shorter than the upper half. Checking the peaks array instead
+       would pass with both halves drawn from the same channel, which is the
+       exact fault being fixed.
+     *
+       Playback is stopped first, and everything is read in ONE go. Left
+       playing, a song reaching its end opens the next one by itself and wipes
+       the wave — which is what happened between two reads here and reported
+       this as broken when it was not. */
+    await page.click('#stop');
+    await page.evaluate((p) => window.tva.openDropped([p]), oneSidedPath);
+    await page.waitForFunction(
+      () => document.getElementById('now-name').textContent.includes('ONE SIDED'),
+      { timeout: 15000 });
+    await page.waitForFunction(() => window.__tvaWaveLanes?.() > 0, { timeout: 25000 });
+
+    const wave = await page.evaluate(() => {
+      const c = document.getElementById('wave');
+      const g = c.getContext('2d');
+      const img = g.getImageData(0, 0, c.width, c.height).data;
+      let top = 0, bottom = 0;
+      const half = Math.floor(c.height / 2);
+      for (let y = 0; y < c.height; y++) {
+        for (let x = 20; x < c.width - 4; x++) {   // past the L/R lettering
+          if (img[(y * c.width + x) * 4 + 3] > 0) { if (y < half) top++; else bottom++; }
+        }
+      }
+      return { top, bottom, lanes: window.__tvaWaveLanes(), song: document.getElementById('now-name').textContent };
+    });
+    check('a stereo song is drawn as two lanes', wave.lanes === 2,
+      `${wave.lanes} lane(s), song is ${wave.song}`);
+    check('the two channels are drawn separately, not as one mono picture',
+      wave.top > 0 && wave.bottom > 0 && wave.bottom < wave.top * 0.6,
+      `top half ${wave.top} pixels, bottom half ${wave.bottom}`);
+
+    /* TWO SONGS OPENED AT ONCE. Opening a song waits several times over, so two
+       opens close together used to interleave: the older one came back partway
+       through the newer one and blanked its wave. It looked like the app being
+       slow, and it took this check going red at random to find. */
+    await page.evaluate((paths) => {
+      window.tva.openDropped([paths[0]]);
+      window.tva.openDropped([paths[1]]);
+    }, [droppedPath, oneSidedPath]);
+    await page.waitForFunction(
+      () => document.getElementById('now-name').textContent.includes('ONE SIDED'),
+      { timeout: 15000 });
+    await page.waitForTimeout(1500);
+    const after = await page.evaluate(() => ({
+      lanes: window.__tvaWaveLanes(),
+      song: document.getElementById('now-name').textContent,
+      total: document.getElementById('t-total').textContent,
+    }));
+    check('opening two songs at once still leaves the second one drawn',
+      after.lanes === 2 && after.song.includes('ONE SIDED'),
+      `${after.lanes} lane(s), ${after.song}, ${after.total}`);
+  }
+
+  console.log('\n--- dragging a song into the window ---');
+  {
+    /* THE THING THAT MUST NOT HAPPEN. Left to itself, Electron treats a dropped
+       file as a page to go to and replaces the whole app with it. */
+    const before = page.url();
+    const flagged = await page.evaluate(() => {
+      const dt = new DataTransfer();
+      dt.items.add(new File(['x'], 'dropped.mp3', { type: 'audio/mpeg' }));
+      window.dispatchEvent(new DragEvent('dragenter', { dataTransfer: dt, bubbles: true }));
+      const showing = document.getElementById('tp').classList.contains('dropping');
+      window.dispatchEvent(new DragEvent('drop', { dataTransfer: dt, bubbles: true }));
+      return showing;
+    });
+    await page.waitForTimeout(300);
+    check('the window says so while a song is held over it', flagged);
+    check('and dropping one does not replace the app with the file',
+      page.url() === before, page.url());
+    check('and the outline goes away again',
+      !(await page.evaluate(() => document.getElementById('tp').classList.contains('dropping'))));
+
+    const opened = await page.evaluate((p) => window.tva.openDropped([p]), droppedPath);
+    check('a song dropped in is opened', opened === 1, `${opened} opened`);
+    await page.waitForFunction(
+      () => document.getElementById('now-name').textContent.includes('DROPPED IN'),
+      { timeout: 15000 });
+    check('and it is the one on screen', true, await page.textContent('#now-name'));
+
+    const ignored = await page.evaluate((p) => window.tva.openDropped([p]), notAudioPath);
+    check('something that is not audio is refused rather than opened', ignored === 0);
+
+    /* Back to the song the rest of these checks are about. Without this they
+       carry on against whatever this block happened to leave open, and three of
+       them failed for that reason alone. */
+    await page.evaluate((p) => window.tva.openDropped([p]), songPath);
+    await page.waitForFunction(
+      () => document.getElementById('now-name').textContent.includes('TEST SONG'),
+      { timeout: 15000 });
+  }
+
+  console.log('\n--- the things Ted could not work out ---');
+  {
+    /* THE THREE DOTS. "There are 3 dots in the upper right that glow green at
+       various times. I don't understand what they are, or what they are for."
+       A lamp with no word on it names nothing, so each one has to carry its own
+       word — and reading the text is the only way to know it is really there. */
+    const lampWords = await page.evaluate(() =>
+      [...document.querySelectorAll('.lamp')].map((el) => el.textContent.trim()));
+    check('each light by the song name says what it is',
+      lampWords.length === 3 && lampWords.every((w) => w.length > 2),
+      lampWords.join(', '));
+
+    /* THE HELP HE WENT LOOKING FOR. "When I DO have a question, where are the
+       instructions, help menu, information hover buttons?" Everything printed
+       on one page, so nothing is behind a hover. */
+    await page.click('.tab[data-tab="help"]');
+    const help = (await page.textContent('[data-panel="help"]')).toLowerCase();
+    for (const subject of ['drag', 'double-click', 'playing', 'loop', 'record', 'playlist', 'pitch']) {
+      check(`help answers a question about ${subject}`, help.includes(subject));
+    }
+
+    /* THE WORD IS LOOP. "use the term 'loop' or 'looping', not 'the part you
+       are repeating' - again, wordy and thus confusing, when the actual word is
+       ideal, simple and clear." */
+    await page.click('.tab[data-tab="loop"]');
+    const loopPanel = await page.textContent('[data-panel="loop"]');
+    check('the loop bench calls a loop a loop', loopPanel.toLowerCase().includes('loop'));
+    check('and never calls it "the part you are repeating"',
+      !loopPanel.toLowerCase().includes('the part you are repeating'), loopPanel.slice(0, 60));
+
+    /* THE RECORDER HE COULD NOT REACH. "I don't understand how to use the
+       recorder. And it is not on the screen. I have to scroll down." So the
+       three steps have to be numbered AND the first of them has to be visible
+       without scrolling, at the window size he runs. */
+    await page.setViewportSize({ width: 1180, height: 760 });
+    await page.click('.tab[data-tab="record"]');
+    const steps = await page.evaluate(() =>
+      [...document.querySelectorAll('[data-panel="record"] .steps > li')].map((li) => ({
+        num: li.querySelector('.num')?.textContent.trim(),
+        top: li.getBoundingClientRect().top,
+        bottom: li.getBoundingClientRect().bottom,
+      })));
+    check('recording is laid out as numbered steps',
+      steps.length === 3 && steps.map((x) => x.num).join('') === '123',
+      steps.map((x) => x.num).join(','));
+    check('and all three are on screen without scrolling at 1180x760',
+      steps.every((x) => x.bottom <= 760 && x.top >= 0),
+      steps.map((x) => `${x.num}:${Math.round(x.bottom)}`).join(' '));
   }
 
   console.log('\n--- notes pinned to a moment ---');
@@ -640,14 +877,16 @@ try {
   }
 
   console.log('\n--- selecting several files at once ---');
-  const arrived = await page.evaluate(() => window.__tvaOpenedCount ?? 0);
   check('every file in the selection arrives, not just the last one',
-    arrived === 3, `${arrived} of 3 songs reached the page`);
+    launchOpened === 3, `${launchOpened} of 3 songs reached the page`);
   check('the app can also be asked to open songs from a menu',
     await page.evaluate(() => typeof window.tva.openSongs === 'function'));
 } finally {
   await app.close().catch(() => {});
-  if (NEGATIVE) await writeFile(graphPath, original);
+  if (NEGATIVE) {
+    await writeFile(graphPath, original);
+    await writeFile(uiPath, uiOriginal);
+  }
   await rm(work, { recursive: true, force: true });
 }
 

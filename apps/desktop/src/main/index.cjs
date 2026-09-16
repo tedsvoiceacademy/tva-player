@@ -352,6 +352,19 @@ ipcMain.handle('dialog:openSongs', async () => {
   return result.filePaths;
 });
 
+/* Songs dragged onto the window. Only files the app can actually play are
+   taken, and it goes through the same door as a double-click from Explorer, so
+   there is one place where a path becomes something the page may reach. */
+ipcMain.handle('dialog:openDropped', async (_e, paths) => {
+  /* isAudioPath, not filterAudioArgs: that one skips its first entry because
+     index 0 of a process argument list is the executable. Here every entry is
+     a file somebody dropped, and dropping one song must not open nothing. */
+  const wanted = (Array.isArray(paths) ? paths : [])
+    .map(String).filter((candidate) => core.isAudioPath(candidate));
+  if (wanted.length) await deliverOpen(wanted);
+  return wanted.length;
+});
+
 ipcMain.handle('song:load', (_e, songKey) => store.loadSong(String(songKey)));
 ipcMain.handle('song:save', (_e, songFile) => store.saveSong(songFile));
 ipcMain.handle('song:list', () => store.listSongs());

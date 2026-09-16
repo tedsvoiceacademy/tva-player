@@ -78,14 +78,19 @@ body {
 
 /* ---- the library rail --------------------------------------------------- */
 
+/* A column, not a grid with a counted number of rows. The row template named
+   six, and the moment the playlist controls became a row of their own the
+   growing row landed on THEM — so the two playlist controls stretched into
+   enormous dark blobs and the song list had no room. A column with one growing
+   child cannot be wrong about how many children there are. */
 .rail {
-  min-height: 0; display: grid; gap: 7px;
-  grid-template-rows: auto auto auto minmax(0, 1fr) auto auto;
+  min-height: 0; display: flex; flex-direction: column; gap: 7px;
   padding: 12px 12px 12px;
   border-radius: 14px;
   background: linear-gradient(180deg, rgba(26, 45, 77, 0.5), rgba(10, 22, 40, 0.45));
   border: 1px solid rgba(255, 255, 255, 0.07);
 }
+.rail > * { flex: 0 0 auto; }
 .railtop { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .railtop .chip { font-size: 0.72rem; padding: 0.28rem 0.6rem; }
 .find {
@@ -96,14 +101,14 @@ body {
   box-shadow: inset 0 1px 4px rgba(0, 0, 0, 0.6);
 }
 .find:focus { outline: 2px solid var(--gold); outline-offset: 1px; }
-.railrow { display: flex; flex-wrap: wrap; gap: 5px; }
+.railrow { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; }
 .railrow .chip { font-size: 0.71rem; padding: 0.26rem 0.6rem; }
 .mini {
   font: inherit; font-size: 0.72rem; padding: 0.22rem 0.4rem; border-radius: 999px;
   border: 1px solid rgba(255, 255, 255, 0.14); background: #0b1830; color: var(--cream);
   max-width: 8.5rem;
 }
-.raillist { min-height: 0; overflow-y: auto; overflow-x: hidden; }
+.raillist { flex: 1 1 auto; min-height: 0; overflow-y: auto; overflow-x: hidden; }
 .upnext {
   margin: 0; font-size: 0.74rem; color: var(--lit); opacity: 0.75;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
@@ -141,8 +146,8 @@ body {
 /* ---- THE CHASSIS -------------------------------------------------------- */
 
 .rack {
-  display: grid; gap: 10px;
-  padding: 13px 16px 14px;
+  display: grid; gap: 9px;
+  padding: 12px 16px 12px;
   border-radius: 16px;
   background:
     url('./noise-texture.png') repeat,
@@ -180,18 +185,28 @@ body {
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 
-.lamps { display: flex; gap: 6px; flex: 0 0 auto; }
+/* A light with no word on it names nothing. Ted asked what three glowing dots
+   were for, which is the label's fault, so each carries its own word. */
+.lamps { display: flex; gap: 10px; flex: 0 0 auto; }
 .lamp {
-  width: 8px; height: 8px; border-radius: 999px;
+  display: inline-flex; align-items: center; gap: 4px;
+  font-size: 0.6rem; letter-spacing: 0.1em; text-transform: uppercase;
+  font-weight: 700; color: var(--cream); opacity: 0.32; white-space: nowrap;
+}
+.lamp i {
+  width: 7px; height: 7px; border-radius: 999px;
   background: rgba(255, 216, 138, 0.16);
   box-shadow: inset 0 0 3px rgba(0, 0, 0, 0.8);
 }
-.lamp.lit { background: #7ff0a8; box-shadow: 0 0 9px rgba(127, 240, 168, 0.9); }
+.lamp.lit { opacity: 1; color: #7ff0a8; }
+.lamp.lit i { background: #7ff0a8; box-shadow: 0 0 9px rgba(127, 240, 168, 0.9); }
+.lamp.rec.lit { color: #ff9b9b; }
+@media (max-width: 1080px) { .lamps { font-size: 0; gap: 6px; } .lamps .lamp { gap: 0; } }
 
 .r-clock {
   display: flex; align-items: baseline; gap: 8px; margin-top: 2px;
   font-family: Consolas, ui-monospace, "SF Mono", Menlo, monospace;
-  font-size: 1.95rem; font-weight: 600; line-height: 1.02;
+  font-size: 1.72rem; font-weight: 600; line-height: 1.02;
   color: var(--lit); text-shadow: 0 0 16px rgba(255, 190, 70, 0.5);
   font-variant-numeric: tabular-nums;
 }
@@ -237,23 +252,28 @@ body {
 }
 .ruler {
   display: flex; justify-content: space-between;
-  padding: 3px 6px 4px; border-radius: 0 0 8px 8px;
+  padding: 1px 6px 2px; border-radius: 0 0 8px 8px;
   background: #050c18;
   font-family: Consolas, ui-monospace, monospace;
-  font-size: 0.66rem; color: var(--cream); opacity: 0.4;
+  font-size: 0.64rem; color: var(--cream); opacity: 0.4;
 }
 .wavehint {
-  margin: 0; flex: 0 1 auto; text-align: center;
-  font-size: 0.76rem; line-height: 1.45; color: var(--cream); opacity: 0.5;
+  margin: 0; flex: 0 1 auto; min-width: 0; text-align: center;
+  font-size: 0.74rem; line-height: 1.4; color: var(--cream); opacity: 0.5;
 }
 @media (max-width: 980px) { .wavehint { display: none; } }
 
 /* ---- transport and the knob bank ---------------------------------------- */
 
+/* ONE ROW, ALWAYS. Wrapping put the dials on a line of their own and made the
+   case 62 pixels taller, which is most of the reason the recorder's third step
+   sat below the bottom of the window. The hint between them gives way instead:
+   it is the only thing here that reads just as well narrow. */
 .bench {
-  display: flex; flex-wrap: wrap; align-items: center;
-  justify-content: space-between; gap: 10px 24px;
+  display: flex; flex-wrap: nowrap; align-items: center;
+  justify-content: space-between; gap: 10px 18px;
 }
+.bench > .transport, .bench > .bank { flex: 0 0 auto; }
 .transport { display: flex; align-items: center; gap: 8px; }
 
 .tbtn {
@@ -330,8 +350,8 @@ body {
  * until you hear it, so each one carries a sentence. */
 
 .switches {
-  display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px 16px;
-  padding-top: 9px; border-top: 1px solid rgba(255, 255, 255, 0.07);
+  display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px 16px;
+  padding-top: 7px; border-top: 1px solid rgba(255, 255, 255, 0.07);
 }
 @media (max-width: 1040px) { .switches { grid-template-columns: 1fr 1fr; } }
 
@@ -341,29 +361,38 @@ body {
 }
 .swx input { width: 16px; height: 16px; accent-color: var(--gold); margin-top: 2px; }
 .swx b {
-  display: block; font-size: 0.8rem; font-weight: 600;
-  color: var(--cream); line-height: 1.3;
+  display: block; font-size: 0.79rem; font-weight: 600;
+  color: var(--cream); line-height: 1.22;
 }
 .swx em {
-  display: block; font-style: normal; font-size: 0.71rem; line-height: 1.3;
+  display: block; font-style: normal; font-size: 0.7rem; line-height: 1.22;
   color: var(--cream); opacity: 0.55; margin-top: 1px;
 }
 .swx.tight b { font-size: 0.78rem; }
 
 /* ---- the tabs ----------------------------------------------------------- */
 
-.tabs { display: flex; gap: 4px; flex-wrap: wrap; }
-.tab {
-  font: inherit; font-size: 0.79rem; font-weight: 600; cursor: pointer;
-  color: var(--cream); background: transparent;
-  border: 1px solid transparent; border-radius: 999px;
-  padding: 0.34rem 0.85rem; opacity: 0.65;
+/* Ted read straight past this strip and only found it after writing up
+   everything he could not do: "After writing this is when I noticed Repeat a
+   part, Notes, Click track and set-up." Pills floating in space did not read as
+   a set of sections, so they are tabs now — joined to the panel underneath,
+   with the open one continuous with it. */
+.tabs {
+  display: flex; gap: 2px; flex-wrap: wrap; align-items: flex-end;
+  border-bottom: 1px solid rgba(212, 168, 75, 0.35);
 }
-.tab:hover { opacity: 1; background: rgba(255, 255, 255, 0.06); }
+.tab {
+  font: inherit; font-size: 0.85rem; font-weight: 600; cursor: pointer;
+  color: var(--cream); background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08); border-bottom: 0;
+  border-radius: 9px 9px 0 0;
+  padding: 0.42rem 1rem; margin-bottom: -1px; opacity: 0.7;
+}
+.tab:hover { opacity: 1; background: rgba(255, 255, 255, 0.09); }
 .tab.on {
   opacity: 1; color: var(--navy-deep);
   background: linear-gradient(180deg, var(--gold-hover), var(--gold));
-  border-color: rgba(255, 226, 160, 0.6);
+  border-color: rgba(212, 168, 75, 0.6);
 }
 
 /* ---- the tuner ---------------------------------------------------------- */
@@ -409,8 +438,7 @@ body {
   border-color: rgba(255, 170, 170, 0.6);
 }
 .recbtn.on svg { fill: #fff; }
-.lamp.rec {}
-.lamp.rec.lit { background: #ff6b6b; box-shadow: 0 0 9px rgba(255, 107, 107, 0.9); }
+.lamp.rec.lit i { background: #ff6b6b; box-shadow: 0 0 9px rgba(255, 107, 107, 0.9); }
 
 .meterrow { display: flex; align-items: center; gap: 10px; margin: 8px 0; }
 .meter {
@@ -435,7 +463,10 @@ body {
   font-size: 0.67rem; letter-spacing: 0.1em; text-transform: uppercase;
   color: var(--cream); opacity: 0.8;
 }
-.pick select, .pick input {
+/* Selects anywhere in a bench row, not only the ones inside a .pick label. The
+   microphone chooser sat in a plain row and was drawn by Windows in its own
+   white, next to gold buttons. */
+.looprow select, .pick select, .pick input {
   font: inherit; font-size: 0.8rem; text-transform: none; letter-spacing: 0;
   padding: 0.3rem 0.6rem; border-radius: 7px; max-width: 16rem;
   border: 1px solid rgba(0, 0, 0, 0.5);
@@ -483,6 +514,10 @@ body {
 
 .desk { display: grid; grid-template-columns: 1.3fr 1fr; gap: 12px; }
 .desk.wide1 { grid-template-columns: 1fr; }
+/* The recording steps get the wider side. In an even split the three buttons
+   in step three wrapped onto a second line, which pushed the step itself off
+   the bottom of the window — the exact thing Ted hit. */
+.desk.rec { grid-template-columns: 1.6fr 1fr; }
 @media (max-width: 1040px) { .desk { grid-template-columns: 1fr; } }
 
 .panel {
@@ -561,7 +596,13 @@ body {
   color: var(--lit); opacity: 0.7;
   white-space: nowrap;
 }
-.iacts { flex: 0 0 auto; display: flex; flex-wrap: wrap; gap: 6px; margin-left: auto; }
+/* 0 0 auto here sized this to its widest possible line and let it hang off the
+   side of a narrow panel, with "Remove" cut in half. It has to be allowed to
+   shrink before the wrapping inside it can do anything. */
+.iacts {
+  flex: 0 1 auto; min-width: 0; display: flex; flex-wrap: wrap;
+  gap: 6px; margin-left: auto;
+}
 .iacts .chip { font-size: 0.74rem; padding: 0.3rem 0.7rem; }
 
 .empty { margin: 0; font-size: 0.82rem; color: var(--cream); opacity: 0.55; }
@@ -575,3 +616,50 @@ body {
 @media (prefers-reduced-motion: reduce) {
   .tbtn, .chip, .pill { transition: none; }
 }
+
+/* ---- numbered steps, the help page, and dragging a song in -------------- */
+
+/* "I don't understand how to use the recorder." It is three things in order,
+   so it is drawn as three things in order rather than as a pile of rows. */
+.steps { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.steps li { display: grid; grid-template-columns: 22px 1fr; gap: 9px; align-items: start; }
+.steps .num {
+  display: grid; place-items: center; width: 22px; height: 22px; border-radius: 999px;
+  background: linear-gradient(180deg, var(--gold-hover), var(--gold));
+  color: var(--navy-deep); font-size: 0.74rem; font-weight: 700;
+}
+.stepbody { min-width: 0; display: grid; gap: 5px; }
+.stepbody > b { font-size: 0.83rem; font-weight: 600; color: var(--cream); }
+.stepbody .note, .stepbody .metertext { margin: 0; }
+.steps .meterrow { margin: 0; }
+
+.plab.sub { display: block; margin-top: 12px; opacity: 0.6; }
+
+.dropnote {
+  margin: 6px 2px 0; text-align: center;
+  font-size: 0.72rem; color: var(--cream); opacity: 0.5;
+}
+
+/* While a song is over the window, say so — a window that silently accepts a
+   drop looks the same as one that ignores it. */
+#tp.dropping::after {
+  content: 'Drop the song to open it';
+  position: fixed; inset: 8px; z-index: 40;
+  display: grid; place-items: center;
+  border: 2px dashed var(--gold); border-radius: 16px;
+  background: rgba(10, 22, 40, 0.82);
+  color: var(--gold); font-size: 1.15rem; font-weight: 600;
+  pointer-events: none;
+}
+
+/* The help page is prose, so it is set as prose rather than as rows of controls. */
+.help h3 {
+  font-size: 0.8rem; letter-spacing: 0.1em; text-transform: uppercase;
+  color: var(--gold); opacity: 0.85; margin: 14px 0 4px; font-weight: 700;
+}
+.help h3:first-of-type { margin-top: 6px; }
+.help p {
+  margin: 0 0 6px; font-size: 0.83rem; line-height: 1.5;
+  color: var(--cream); opacity: 0.82; max-width: 68ch;
+}
+.help b { opacity: 1; color: var(--white); font-weight: 600; }

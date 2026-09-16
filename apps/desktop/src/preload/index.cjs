@@ -5,7 +5,7 @@
  * anything that ever gets loaded into it, cannot read or write a file the app
  * did not already decide to hand over.
  */
-const { contextBridge, ipcRenderer } = require('electron');
+const { contextBridge, ipcRenderer, webUtils } = require('electron');
 
 const on = (channel) => (handler) => {
   const wrapped = (_event, payload) => handler(payload);
@@ -17,6 +17,13 @@ contextBridge.exposeInMainWorld('tva', {
   // Songs
   openSongs: () => ipcRenderer.invoke('dialog:openSongs'),
   onSongsOpened: on('songs:open'),
+  /* DRAGGING A SONG IN. A dropped File carries no path the page can read — that
+     was taken away from browsers on purpose. webUtils is the one way to ask for
+     it, and it only works from here, so the page hands the File over and gets a
+     path back. It still cannot read the file: it has to ask the app to open it,
+     the same as every other route in. */
+  pathForFile: (file) => webUtils.getPathForFile(file),
+  openDropped: (paths) => ipcRenderer.invoke('dialog:openDropped', paths),
 
   // What the app remembers about a song
   loadSong: (songKey) => ipcRenderer.invoke('song:load', songKey),

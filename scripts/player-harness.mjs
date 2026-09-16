@@ -92,10 +92,14 @@ console.log('--- what a stored song file is allowed to say ---');
   check('the lead is left alone unless it was asked for', d.leadQuieter === false);
 
   const fast = P.sanitizePlayerSettings({ speed: 40 });
-  check('a speed out of range is pulled back in', fast.speed === 1.2,
-    `got ${fast.speed}; the engine is only asked for 0.5 to 1.2`);
+  check('a speed out of range is pulled back in', fast.speed === 2,
+    `got ${fast.speed}; the engine is only asked for 0.25 to 2`);
   const slow = P.sanitizePlayerSettings({ speed: 0.01 });
-  check('and so is a speed below the range', slow.speed === 0.5, `got ${slow.speed}`);
+  check('and so is a speed below the range', slow.speed === 0.25, `got ${slow.speed}`);
+  check('a quarter speed is allowed, because Ted asked for it',
+    P.sanitizePlayerSettings({ speed: 0.25 }).speed === 0.25);
+  check('and so is double speed',
+    P.sanitizePlayerSettings({ speed: 2 }).speed === 2);
 
   const high = P.sanitizePlayerSettings({ halfSteps: 40 });
   check('a key shift out of range is pulled back in', high.halfSteps === 6, `got ${high.halfSteps}`);

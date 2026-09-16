@@ -164,16 +164,18 @@ function openSong(next) {
 }
 
 async function openSongNow(next) {
-  await flushSave();               // whatever the last song was owed, before it goes
+  /* THE NAME CHANGES BEFORE ANYTHING IS WAITED FOR. Putting the save first
+     meant clicking a song in the list left the old song's name on the display
+     until the file had been read — on a slow drive, noticeably. The old wave
+     goes at the same moment, so the window never shows one song's name over
+     another song's picture. */
   song = next;
-  say('Opening that song…');
   $('now-name').textContent = next.name.toUpperCase();
-  /* The old song's wave goes the moment its name does. Left until later, the
-     window showed one song's name over another song's picture for as long as
-     the file took to open — and a check that waited for the wave to appear was
-     answered by the wave that was already there. */
   peaks = null;
   drawWave();
+  say('Opening that song…');
+
+  await flushSave();               // whatever the last song was owed, before it goes
 
   try {
     const { duration: d } = await player.open(next);

@@ -257,8 +257,21 @@ body {
   font-family: Consolas, ui-monospace, monospace;
   font-size: 0.64rem; color: var(--cream); opacity: 0.4;
 }
+/* THE FLOOR UNDER THIS IS THE POINT.
+ *
+ * With no floor it was allowed to shrink to nothing, and on a 1024-wide screen
+ * it did: ten pixels across and three hundred and sixty-five tall, one letter
+ * per line. That one element made the case fill the entire window, so the tabs
+ * and everything under them were off the bottom of the screen and nothing down
+ * there could be clicked at all. Below its floor the dials wrap to a line of
+ * their own instead, which costs height only on a window too narrow to hold
+ * both. */
 .wavehint {
-  margin: 0; flex: 0 1 auto; min-width: 0; text-align: center;
+  /* A basis of 9rem, not auto. A wrapping flex row decides whether to wrap from
+     each item's BASIS, and auto means the full width of the sentence — so with
+     wrapping switched back on this jumped to a line of its own at every window
+     size and took 62 pixels with it. */
+  margin: 0; flex: 1 1 9rem; min-width: 9rem; text-align: center;
   font-size: 0.74rem; line-height: 1.4; color: var(--cream); opacity: 0.5;
 }
 @media (max-width: 980px) { .wavehint { display: none; } }
@@ -270,7 +283,7 @@ body {
    sat below the bottom of the window. The hint between them gives way instead:
    it is the only thing here that reads just as well narrow. */
 .bench {
-  display: flex; flex-wrap: nowrap; align-items: center;
+  display: flex; flex-wrap: wrap; align-items: center;
   justify-content: space-between; gap: 10px 18px;
 }
 .bench > .transport, .bench > .bank { flex: 0 0 auto; }

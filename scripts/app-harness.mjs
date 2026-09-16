@@ -657,18 +657,37 @@ try {
        without scrolling, at the window size he runs. */
     await page.setViewportSize({ width: 1180, height: 760 });
     await page.click('.tab[data-tab="record"]');
-    const steps = await page.evaluate(() =>
-      [...document.querySelectorAll('[data-panel="record"] .steps > li')].map((li) => ({
+    const rec = await page.evaluate(() => ({
+      steps: [...document.querySelectorAll('[data-panel="record"] .steps > li')].map((li) => ({
         num: li.querySelector('.num')?.textContent.trim(),
-        top: li.getBoundingClientRect().top,
-        bottom: li.getBoundingClientRect().bottom,
-      })));
+        top: Math.round(li.getBoundingClientRect().top),
+        bottom: Math.round(li.getBoundingClientRect().bottom),
+      })),
+      /* The window can only be as big as the screen it is on. Asking for
+         1180x760 on a 1024x768 display gets you 1024x733, and a check that
+         measured against 760 anyway would be measuring a window that does not
+         exist. */
+      w: window.innerWidth,
+      h: window.innerHeight,
+      canScroll: document.querySelector('.deskwrap').scrollHeight
+        > document.querySelector('.deskwrap').clientHeight + 1,
+    }));
     check('recording is laid out as numbered steps',
-      steps.length === 3 && steps.map((x) => x.num).join('') === '123',
-      steps.map((x) => x.num).join(','));
-    check('and all three are on screen without scrolling at 1180x760',
-      steps.every((x) => x.bottom <= 760 && x.top >= 0),
-      steps.map((x) => `${x.num}:${Math.round(x.bottom)}`).join(' '));
+      rec.steps.length === 3 && rec.steps.map((x) => x.num).join('') === '123',
+      rec.steps.map((x) => x.num).join(','));
+
+    const where = rec.steps.map((x) => `${x.num}:${x.bottom}`).join(' ');
+    if (rec.h >= 750) {
+      check(`all three steps are on screen without scrolling at ${rec.w}x${rec.h}`,
+        rec.steps.every((x) => x.bottom <= rec.h && x.top >= 0), `${where} of ${rec.h}`);
+    } else {
+      /* Said out loud rather than skipped quietly. On a screen too small for
+         the window Ted runs, the promise that has to hold is that the recorder
+         STARTS on screen and the rest is one scroll away — not that it all
+         fits, which it cannot. */
+      check(`the screen is only ${rec.w}x${rec.h}, so step one is on screen and the rest scroll`,
+        rec.steps[0].bottom <= rec.h && rec.canScroll, `${where} of ${rec.h}`);
+    }
   }
 
   console.log('\n--- notes pinned to a moment ---');
@@ -799,7 +818,13 @@ try {
        window, so that is checked as well as the default size. The case must be
        whole at both: the transport, the wave and the knobs are the instrument,
        and reaching them must never need a scroll. */
-    for (const size of [{ width: 1180, height: 760 }, { width: 1280, height: 720 }]) {
+    /* 1024x733 is in this list because the build runner's screen is that size,
+       and a fault that only appears there cost a whole round: one element with
+       no minimum width squeezed itself into a column of single letters, the
+       case grew to fill the window, and every tab and panel was pushed off the
+       bottom of the screen. */
+    for (const size of [{ width: 1180, height: 760 }, { width: 1280, height: 720 },
+      { width: 1024, height: 733 }]) {
       await page.setViewportSize(size);
       await page.waitForTimeout(250);
       const fit = await page.evaluate(() => {
@@ -812,6 +837,8 @@ try {
           sideways: document.documentElement.scrollWidth > window.innerWidth + 1,
           playH: Math.round(play.height),
           hint: (document.querySelector('.wavehint')?.textContent ?? '').toLowerCase(),
+          deskH: Math.round(document.querySelector('.deskwrap').clientHeight),
+          tabsBottom: Math.round(document.querySelector('.tabs').getBoundingClientRect().bottom),
         };
       });
       const at = `${size.width}x${size.height}`;
@@ -819,6 +846,13 @@ try {
         fit.rackBottom <= fit.windowH, `case ends at ${fit.rackBottom} of ${fit.windowH}`);
       check(`the window itself never scrolls at ${at}`, !fit.pageScrolls);
       check(`and nothing runs off the side at ${at}`, !fit.sideways);
+      /* The case fitting is not the same as the rest of the app being usable.
+         At 1024 the case fitted with two pixels to spare and the tabs and every
+         panel were off the bottom of the screen, which no check here noticed. */
+      check(`the tabs are on screen at ${at}`, fit.tabsBottom <= fit.windowH,
+        `tabs end at ${fit.tabsBottom} of ${fit.windowH}`);
+      check(`and there is room to work under them at ${at}`, fit.deskH >= 90,
+        `${fit.deskH}px of bench`);
     }
     await page.setViewportSize({ width: 1180, height: 760 });
 

@@ -10,8 +10,12 @@ import { pathToFileURL } from 'node:url';
  * and could not get an MP3 to play at all. A WAV is decoded by a different path
  * inside the browser and streams differently, so testing only with one proved
  * nothing about the format he actually uses. This encodes properly, with a pure
- * JavaScript LAME port that is a development dependency only and never ships
- * inside the app. */
+ * JavaScript LAME port.
+ *
+ * That port DOES now ship inside the app — it is what saves a take as an MP3 —
+ * but it stays a development dependency all the same: the build copies one file
+ * of it beside the page, the way the stretch engine is handled, so the packaged
+ * app still carries no node_modules of its own. */
 export async function makeMp3(path, opts = {}) {
   const { Mp3Encoder } = await import('@breezystack/lamejs');
   /* rightGain turns one side down, which is how a check can tell that the two

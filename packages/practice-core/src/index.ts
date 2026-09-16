@@ -7,3 +7,4 @@ export * from './wav.js';
 export * from './yin.js';
 export * from './note.js';
 export * from './metronome.js';
+export * from './mix.js';

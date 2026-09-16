@@ -275,7 +275,12 @@
       <!-- Takes. Recording itself happens on the console above; what is left
            here is the list of what came out of it, and the two settings nobody
            changes mid-take. -->
-      <section class="desk" data-panel="takes" hidden>
+      <!-- ONE COLUMN, not the usual two. A take row carries four buttons now —
+           play it, save the voice, save it with the song, remove — and in half
+           the width the last of them wrapped to a line of its own, which looked
+           like a mistake rather than a layout. The list gets the full width and
+           the two settings nobody changes mid-take sit underneath it. -->
+      <section class="desk wide1" data-panel="takes" hidden>
         <div class="panel">
           <h2 class="plab">Your takes</h2>
           <div class="looprow">
@@ -418,9 +423,21 @@
             good run is never lost for want of pressing record.</p>
           <p>While the microphone is on, <b>Your voice</b> appears in the display with a bar
             showing how loud you are. Sing your loudest and keep it out of the red.</p>
-          <p>Takes are listed under <b>Takes</b> and kept as WAV files on this computer.
-            <b>Save it with the song</b> makes a single file of your take and the song together,
-            for sending to somebody.</p>
+          <p>Takes are listed under <b>Takes</b> and kept as WAV files on this computer.</p>
+          <h3>Getting a take out of the app</h3>
+          <p>Every take carries two save buttons. <b>Save my voice</b> saves that take on its
+            own. <b>Save with the song</b> makes a single file of your take and the song
+            together, which is the one to send to somebody who was not there.</p>
+          <p>Either one opens the usual Windows Save box, and you pick the format from the
+            <b>Save as type</b> list at the bottom of it:</p>
+          <ul>
+            <li><b>MP3</b> — small enough to email or put on a phone. A forty-five minute
+              lesson comes out around forty megabytes.</li>
+            <li><b>WAV</b> — the full-quality file, about six times the size. A take saved as
+              a WAV on its own is an exact copy of the take, so it happens instantly.</li>
+          </ul>
+          <p>A long lesson takes a little while to save as an MP3. The button counts up while
+            it works, and the app stays usable throughout.</p>
 
           <h3>The wave</h3>
           <p>On a stereo song the left channel is drawn on top and the right channel underneath,

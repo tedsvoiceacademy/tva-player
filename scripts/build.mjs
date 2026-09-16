@@ -33,16 +33,29 @@ await esbuild.build({ ...shared, entryPoints: [ENTRY], format: 'esm',
  *
    npm may hoist the package to the root or leave it in the workspace, so both
    are tried rather than one being assumed. */
-const STRETCH = 'signalsmith-stretch/SignalsmithStretch.mjs';
-const candidates = [
-  join(ROOT, 'node_modules', STRETCH),
-  join(DESKTOP, 'node_modules', STRETCH),
-];
-const stretchSource = candidates.find((p) => existsSync(p));
-if (!stretchSource) {
-  throw new Error(`Cannot find ${STRETCH}. Looked in:\n  ${candidates.join('\n  ')}`);
+function vendorFile(relative) {
+  const candidates = [
+    join(ROOT, 'node_modules', relative),
+    join(DESKTOP, 'node_modules', relative),
+  ];
+  const found = candidates.find((p) => existsSync(p));
+  if (!found) throw new Error(`Cannot find ${relative}. Looked in:\n  ${candidates.join('\n  ')}`);
+  return found;
 }
-await copyFile(stretchSource, join(DESKTOP, 'dist/renderer/vendor/SignalsmithStretch.mjs'));
+
+const vendor = (name) => join(DESKTOP, 'dist/renderer/vendor', name);
+
+await copyFile(vendorFile('signalsmith-stretch/SignalsmithStretch.mjs'),
+  vendor('SignalsmithStretch.mjs'));
+
+/* The MP3 encoder, for saving a take as something that can be emailed.
+ *
+ * A pure JavaScript port of LAME, so it stays a build-time dependency that is
+ * COPIED rather than installed — the packaged app still has no node_modules of
+ * its own. It is copied whole and unminified, with its licence beside it, which
+ * is also what LGPL-3.0 asks of anything that ships it. */
+await copyFile(vendorFile('@breezystack/lamejs/dist/lamejs.js'), vendor('lamejs.mjs'));
+await copyFile(vendorFile('@breezystack/lamejs/LICENSE'), vendor('lamejs-LICENSE.txt'));
 
 /* THE MAIN PROCESS IS BUNDLED, not copied.
  *

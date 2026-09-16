@@ -15,7 +15,8 @@ import {
   emptySongFile, xToTime, dragToLoopRegion, isClickNotDrag,
   formatTime, parseTime, applyLoopEdit, nudgeLoop, MAX_SECTIONS,
   sanitizeNotes, addNote, detectPitchYin, noteFromHz,
-  wavHeader, floatToInt16, interleave,
+  floatToInt16, interleave, looksLikeWav, dataBytesForFileSize, WAV_HEADER_BYTES,
+  mixSlice, mixLengthFrames, mp3KbpsFor,
 } from '../practice-core.js';
 
 const $ = (id) => document.getElementById(id);
@@ -1269,10 +1270,15 @@ async function refreshTakes() {
     play.type = 'button'; play.className = 'chip'; play.textContent = 'Play it';
     play.addEventListener('click', () => playTake(take));
 
+    const mine = document.createElement('button');
+    mine.type = 'button'; mine.className = 'chip'; mine.textContent = 'Save my voice…';
+    mine.title = 'Save this take on its own, as an MP3 or a WAV';
+    mine.addEventListener('click', () => exportTake(take, { withSong: false }, mine));
+
     const mix = document.createElement('button');
-    mix.type = 'button'; mix.className = 'chip'; mix.textContent = 'Save it with the song';
+    mix.type = 'button'; mix.className = 'chip'; mix.textContent = 'Save with the song…';
     mix.title = 'Make one file of this take and the song together, to send to somebody';
-    mix.addEventListener('click', () => saveMixed(take, mix));
+    mix.addEventListener('click', () => exportTake(take, { withSong: true }, mix));
 
     const drop = document.createElement('button');
     drop.type = 'button'; drop.className = 'chip'; drop.textContent = 'Remove';
@@ -1282,7 +1288,7 @@ async function refreshTakes() {
       await refreshTakes();
     });
 
-    acts.append(play, mix, drop);
+    acts.append(play, mine, mix, drop);
     row.append(left, acts);
     host.append(row);
   }
@@ -1656,62 +1662,177 @@ $('playlist-pick').addEventListener('change', async (e) => {
    ======================================================================== */
 
 /* The take and the song are kept apart, which is what lets either be changed
-   afterwards. This makes a single file of the two for handing to somebody,
-   without touching either original.
+ * afterwards. This gets one of them out of the app as a file, in the format he
+ * picked, either on its own or with the song underneath it.
  *
- * The take is shifted back by however long the microphone takes to reach the
- * computer, so it sits where it was actually sung rather than a little late. */
-async function saveMixed(take, button) {
-  if (!song) { say('Open the song this take was sung against first.'); return; }
+ * THE SAVE BOX COMES FIRST and the file is written into as the encoding runs,
+ * rather than a finished file being built in memory and then offered. A take of
+ * a forty-five minute lesson is about 260 MB and the mix is twice that; the old
+ * way held three of those at once and could not have saved a real lesson at all.
+ *
+ * The encoding itself happens in a worker, so the window keeps painting and the
+ * number on the button keeps climbing while it runs.
+ */
+
+/* About 2.7 seconds at 48 kHz. Small enough that the page repaints between
+   slices, large enough that the per-slice overhead disappears. */
+const SLICE_FRAMES = 1 << 17;
+
+function channelsOf(buffer) {
+  const out = [];
+  for (let c = 0; c < buffer.numberOfChannels; c++) out.push(buffer.getChannelData(c));
+  return out;
+}
+
+/* A take read straight out of its own file, without decoding it.
+ *
+ * This app wrote that file, so its shape is known rather than guessed: 44 bytes
+ * of header and then 16-bit samples, which is exactly what both encoders want.
+ * Nothing larger than one slice is ever in memory, so the length of the lesson
+ * stops mattering. */
+async function rawTakeReader(take) {
+  const headBytes = await (await fetch(take.url, { headers: { Range: 'bytes=0-43' } })).arrayBuffer();
+  const head = new Uint8Array(headBytes);
+  if (!looksLikeWav(head)) return null;
+  const view = new DataView(head.buffer, head.byteOffset, head.byteLength);
+  const channels = view.getUint16(22, true) || 1;
+  const sampleRate = view.getUint32(24, true) || 48000;
+  if (view.getUint16(34, true) !== 16) return null;    // not one of ours after all
+  const totalFrames = Math.floor(dataBytesForFileSize(take.bytes, channels) / (channels * 2));
+  return {
+    sampleRate, channels, totalFrames,
+    async read(startFrame, frames) {
+      const from = WAV_HEADER_BYTES + startFrame * channels * 2;
+      const to = from + frames * channels * 2 - 1;
+      const bytes = await (await fetch(take.url, { headers: { Range: `bytes=${from}-${to}` } })).arrayBuffer();
+      return new Int16Array(bytes);
+    },
+  };
+}
+
+/* Everything that has to be decoded first: a mix with the song, and a take
+   whose own sample rate is one the MP3 encoder will not accept. */
+function bufferReader({ song, take, sampleRate, channels, totalFrames, shiftFrames }) {
+  return {
+    sampleRate, channels, totalFrames,
+    async read(startFrame, frames) {
+      const slice = mixSlice(song, take, frames, startFrame, shiftFrames, 0.8, channels);
+      return floatToInt16(interleave(slice));
+    },
+  };
+}
+
+async function buildExportReader(take, { withSong, rate }) {
+  /* A take at any rate at all can go straight out: LAME resamples whatever it
+     is handed, and a WAV states its own rate. So this is the path a take on its
+     own always takes, and nothing is decoded. */
+  if (!withSong) {
+    const raw = await rawTakeReader(take);
+    if (raw) return raw;
+  }
+
+  /* The mix has to be decoded, and decodeAudioData resamples to the rate of the
+     context it is called on — which is how the song and the take arrive matched. */
+  const probe = new OfflineAudioContext({ numberOfChannels: 2, length: 1, sampleRate: rate });
+  const takeBuf = await probe.decodeAudioData(await (await fetch(take.url)).arrayBuffer());
+  const takeCh = channelsOf(takeBuf);
+
+  if (!withSong) {
+    return bufferReader({
+      song: [], take: takeCh, sampleRate: rate,
+      channels: takeCh.length, totalFrames: takeBuf.length, shiftFrames: 0,
+    });
+  }
+
+  const songBuf = await probe.decodeAudioData(await (await fetch(song.url)).arrayBuffer());
+  /* Shifting the take EARLIER means skipping its first moments, which is how
+     the delay between singing and the sound reaching the computer is taken out. */
+  const shiftFrames = Math.round((Math.max(0, Number($('latency').value) || 0) / 1000) * rate);
+  return bufferReader({
+    song: channelsOf(songBuf), take: takeCh, sampleRate: rate,
+    channels: 2, totalFrames: mixLengthFrames(songBuf.length, takeBuf.length), shiftFrames,
+  });
+}
+
+async function exportTake(take, { withSong }, button) {
+  if (withSong && !song) { say('Open the song this take was sung against first.'); return; }
+
+  const picked = await window.tva.exportPick({
+    suggestedName: withSong ? `${take.name} with the song` : take.name,
+  });
+  if (!picked) { say('Nothing was saved.'); return; }
+
+  /* A take saved as a WAV on its own is the file it already is — same rate,
+     same channels, same sixteen bits. Copying it is both instant and exact,
+     where a round trip out through float and back would be neither. */
+  if (!withSong && picked.format === 'wav') {
+    const copied = await window.tva.exportCopy({ from: take.path, to: picked.filePath });
+    say(copied?.error ? copied.error : `Saved as ${copied.path}.`);
+    return;
+  }
+
   const was = button.textContent;
   button.disabled = true;
-  button.textContent = 'Mixing…';
+  button.textContent = 'Saving… 0%';
+
+  let jobId = null;
+  let worker = null;
+  let writes = Promise.resolve();
   try {
-    const rate = player.ctx.sampleRate;
-    const [takeBytes, songBytes] = await Promise.all([
-      (await fetch(take.url)).arrayBuffer(),
-      (await fetch(song.url)).arrayBuffer(),
-    ]);
+    const reader = await buildExportReader(take, { withSong, rate: player.ctx.sampleRate });
 
-    // One context for the render, at the rate everything else is running at.
-    const probe = new OfflineAudioContext({ numberOfChannels: 2, length: 1, sampleRate: rate });
-    const takeBuf = await probe.decodeAudioData(takeBytes);
-    const songBuf = await probe.decodeAudioData(songBytes);
+    const opened = await window.tva.exportOpen({ filePath: picked.filePath });
+    if (!opened || opened.error) throw new Error(opened?.error ?? 'That file could not be opened.');
+    jobId = opened.id;
 
-    const shiftSec = Math.max(0, Number($('latency').value) || 0) / 1000;
-    const length = Math.max(songBuf.length, takeBuf.length);
-    const ctx = new OfflineAudioContext({ numberOfChannels: 2, length, sampleRate: rate });
-
-    const songSrc = ctx.createBufferSource(); songSrc.buffer = songBuf;
-    const songVol = ctx.createGain(); songVol.gain.value = 0.8;
-    songSrc.connect(songVol).connect(ctx.destination);
-    songSrc.start(0);
-
-    const takeSrc = ctx.createBufferSource(); takeSrc.buffer = takeBuf;
-    const takeVol = ctx.createGain(); takeVol.gain.value = 1;
-    takeSrc.connect(takeVol).connect(ctx.destination);
-    // Shifting the take EARLIER means skipping its first moments, because a
-    // source cannot start before the beginning of the file.
-    takeSrc.start(0, shiftSec);
-
-    const mixed = await ctx.startRendering();
-    const channels = [];
-    for (let c = 0; c < mixed.numberOfChannels; c++) channels.push(mixed.getChannelData(c));
-    const pcm = floatToInt16(interleave(channels));
-    const header = wavHeader(rate, channels.length, pcm.byteLength);
-
-    const file = new Uint8Array(header.length + pcm.byteLength);
-    file.set(header, 0);
-    file.set(new Uint8Array(pcm.buffer), header.length);
-
-    const saved = await window.tva.saveMixed({
-      suggestedName: `${take.name} with the song`,
-      bytes: file,
+    worker = new Worker('./workers/export-worker.js', { type: 'module' });
+    const finished = new Promise((resolve, reject) => {
+      worker.addEventListener('message', (event) => {
+        const message = event.data;
+        if (message.type === 'bytes') {
+          /* Chained, so two lumps are never written to one handle at once, and
+             a failure stops the whole export rather than one write. */
+          writes = writes
+            .then(() => window.tva.exportWrite(jobId, message.bytes))
+            .then((ok) => { if (!ok) throw new Error('The file could not be written to.'); })
+            .catch((err) => { reject(err); });
+        } else if (message.type === 'done') resolve();
+        else if (message.type === 'error') reject(new Error(message.message));
+      });
+      worker.addEventListener('error', (event) => {
+        reject(new Error(event.message || 'The encoder stopped.'));
+      });
     });
-    say(saved ? `Saved as ${saved}.` : 'Nothing was saved.');
+    finished.catch(() => {});      // handled below; this only keeps it quiet
+
+    worker.postMessage({
+      type: 'begin', format: picked.format,
+      sampleRate: reader.sampleRate, channels: reader.channels,
+      totalFrames: reader.totalFrames, kbps: mp3KbpsFor(reader.channels),
+    });
+
+    for (let start = 0; start < reader.totalFrames; start += SLICE_FRAMES) {
+      const frames = Math.min(SLICE_FRAMES, reader.totalFrames - start);
+      const samples = await reader.read(start, frames);
+      worker.postMessage({ type: 'pcm', samples }, [samples.buffer]);
+      button.textContent = `Saving… ${Math.round(((start + frames) / reader.totalFrames) * 100)}%`;
+      await new Promise((r) => setTimeout(r, 0));   // let the window repaint
+    }
+    worker.postMessage({ type: 'end' });
+    await finished;
+    await writes;
+
+    const saved = await window.tva.exportFinish(jobId);
+    jobId = null;
+    if (!saved || saved.error) throw new Error(saved?.error ?? 'That could not be saved.');
+    say(`Saved as ${saved.path}.`);
   } catch (err) {
-    say(`That could not be mixed. ${err?.message ?? err}`);
+    /* A half-written MP3 left in his Music folder would look exactly like a take
+       that went wrong, so it goes rather than being left to be puzzled over. */
+    if (jobId !== null) { await window.tva.exportAbort(jobId); jobId = null; }
+    say(`That could not be saved. ${err?.message ?? err}`);
   } finally {
+    if (worker) worker.terminate();
     button.disabled = false;
     button.textContent = was;
   }

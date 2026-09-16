@@ -58,7 +58,19 @@ contextBridge.exposeInMainWorld('tva', {
   stopRecording: () => ipcRenderer.invoke('record:stop'),
   listRecordings: () => ipcRenderer.invoke('record:list'),
   removeRecording: (target) => ipcRenderer.invoke('record:remove', target),
-  saveMixed: (opts) => ipcRenderer.invoke('record:saveMixed', opts),
+
+  /* Saving a take out. The Save box comes first, then the file is written in
+     pieces — so this is six small doors rather than one that takes a finished
+     file. Each lump of bytes is AWAITED rather than fired off: it keeps the
+     writes in order against one file handle, and it stops the encoder running
+     further ahead than the disk can take. */
+  exportFormats: () => ipcRenderer.invoke('export:formats'),
+  exportPick: (opts) => ipcRenderer.invoke('export:pick', opts),
+  exportCopy: (opts) => ipcRenderer.invoke('export:copy', opts),
+  exportOpen: (opts) => ipcRenderer.invoke('export:open', opts),
+  exportWrite: (id, bytes) => ipcRenderer.invoke('export:write', { id, bytes }),
+  exportFinish: (id) => ipcRenderer.invoke('export:finish', { id }),
+  exportAbort: (id) => ipcRenderer.invoke('export:abort', { id }),
   openRecordingsFolder: () => ipcRenderer.invoke('record:folder'),
 
   // Startup facts and jump-list tasks

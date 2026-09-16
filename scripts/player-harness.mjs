@@ -80,6 +80,7 @@ const L = await load('loop-editing');
 const N = await load('notes');
 const S = await load('store-schema', { breakClamp: NEGATIVE });
 const W = await load('wav');
+const M = await load('mix');
 
 console.log('--- what a stored song file is allowed to say ---');
 {
@@ -389,6 +390,77 @@ console.log('\n--- the file a recording is written into ---');
     JSON.stringify([...laced]) === JSON.stringify([1, 2, 3, 4]));
   check('one channel passes straight through',
     W.interleave([new Float32Array([1, 2])]).length === 2);
+}
+
+/* ---- Mixing a take with its song, a slice at a time ---------------------
+ *
+ * This replaced an OfflineAudioContext that rendered the whole thing in one go,
+ * so the two things worth proving are that the arithmetic still matches what a
+ * Web Audio graph would have done, and that cutting it into slices changes
+ * nothing. A dropped or doubled sample at a slice boundary is audible as a
+ * click and would not show up in any other check here. */
+{
+  const rate = 48000;
+  const songL = new Float32Array(1000);
+  const songR = new Float32Array(1000);
+  const take = new Float32Array(600);
+  for (let i = 0; i < 1000; i++) { songL[i] = Math.sin(i / 7); songR[i] = Math.sin(i / 11); }
+  for (let i = 0; i < 600; i++) take[i] = Math.sin(i / 3) * 0.5;
+
+  const song = [songL, songR];
+  const frames = M.mixLengthFrames(1000, 600);
+  check('the mixed file is as long as whichever of the two runs longer', frames === 1000);
+
+  const whole = M.mixSlice(song, [take], frames, 0, 0, 0.8, 2);
+
+  /* Deliberately awkward slice sizes, so a boundary lands in the middle of a
+     sample rather than tidily between them. */
+  const rebuilt = [new Float32Array(frames), new Float32Array(frames)];
+  for (let start = 0, n = 0; start < frames; n++) {
+    const size = Math.min([37, 128, 91, 256][n % 4], frames - start);
+    const slice = M.mixSlice(song, [take], size, start, 0, 0.8, 2);
+    rebuilt[0].set(slice[0], start);
+    rebuilt[1].set(slice[1], start);
+    start += size;
+  }
+  let sameEverywhere = true;
+  for (let c = 0; c < 2; c++) {
+    for (let i = 0; i < frames; i++) if (rebuilt[c][i] !== whole[c][i]) { sameEverywhere = false; break; }
+  }
+  check('slicing the mix changes not one sample', sameEverywhere,
+    'a dropped or doubled sample at a boundary is an audible click');
+
+  check('the song is turned down to 0.8 where the take is silent',
+    Math.abs(whole[0][800] - songL[800] * 0.8) < 1e-7);
+  check('a mono take is copied to both channels at full level',
+    Math.abs(whole[0][10] - (songL[10] * 0.8 + take[10])) < 1e-7
+    && Math.abs(whole[1][10] - (songR[10] * 0.8 + take[10])) < 1e-7,
+    'which is what Web Audio up-mixing did, and 0.707 would be quieter than before');
+
+  /* The alignment box: a take shifted earlier by skipping its own first frames. */
+  const impulse = new Float32Array(600);
+  impulse[500] = 1;
+  const shiftFrames = Math.round((120 / 1000) * rate);      // 120 ms
+  check('a 120 ms shift is 5760 frames at 48 kHz', shiftFrames === 5760);
+  const shifted = M.mixSlice([new Float32Array(1000)], [impulse], 600, 0, 200, 0, 1);
+  check('shifting the take earlier moves the sound earlier by exactly that many frames',
+    shifted[0][300] === 1 && shifted[0][500] === 0,
+    'the other direction would push a take further behind the song, not forward');
+
+  const overrun = M.mixSlice(song, [take], 8, 996, 0, 0.8, 2)[0];
+  check('the last real frame is still there',
+    Math.abs(overrun[3] - songL[999] * 0.8) < 1e-7);
+  check('and everything past the end of both files is silence, not a wrapped read',
+    overrun[4] === 0 && overrun[5] === 0 && overrun[6] === 0 && overrun[7] === 0);
+
+  /* Nothing is clamped here on purpose — floatToInt16 is what limits it, as it
+     did when the Web Audio destination fed the same converter. */
+  const loud = M.mixSlice([new Float32Array([0.9])], [new Float32Array([0.9])], 1, 0, 0, 1, 1);
+  check('a sum past full scale is left for floatToInt16 to clamp', loud[0][0] > 1,
+    'clamping twice would quietly change how a loud mix sounds');
+
+  check('one channel gets 128 kbps and two get 192',
+    M.mp3KbpsFor(1) === 128 && M.mp3KbpsFor(2) === 192);
 }
 
 const failed = results.filter((r) => !r.passed);

@@ -45,13 +45,25 @@ Work through this list once per release.
 12. Kill the app mid-recording. The file left behind still opens — the length is
     recovered from the file's own size.
 
+## Saving a take out
+
+13. Save a 45-minute take as an MP3. The per-cent on the button climbs from the
+    first second, the window keeps painting throughout, and memory stays flat —
+    the slice-by-slice path is exactly what CI cannot prove at that length.
+14. Save the same take with the song. This is the one that still decodes both
+    files whole, so it is where memory would run out if anywhere does.
+15. Play a saved MP3 in Windows Media Player and in whatever a student would
+    use on a phone. A file only this app can open is no use to anybody.
+16. Cancel the Save box, and pull a USB drive out mid-save. Neither leaves a
+    part-written file behind.
+
 ## Updates
 
-13. Install version N, publish N+1, confirm the notice appears and the new
+17. Install version N, publish N+1, confirm the notice appears and the new
     version is in place after closing the app.
 
 ## Media keys
 
-14. Press play/pause while Chrome has the focus, then while Spotify does. If
+18. Press play/pause while Chrome has the focus, then while Spotify does. If
     another app has claimed a key, the app says which one rather than doing
     nothing silently.

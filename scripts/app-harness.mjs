@@ -98,6 +98,21 @@ if (NEGATIVE) {
   await writeFile(skinsPath, broken);
 }
 
+/* A FIFTH CONTROL, for the file that leaves the app. "Saved as C:\\..." appears
+   whatever the encoder produced, so without this the export checks would prove
+   only that a file of roughly the right size arrived. This feeds the MP3
+   encoder silence while everything else — the slicing, the writes, the progress,
+   the message — carries on looking perfect. The checks that measure the pitch
+   and the peak of the saved file have to notice. */
+const workerPath = join(ROOT, 'apps/desktop/dist/renderer/workers/export-worker.js');
+const workerOriginal = await readFile(workerPath, 'utf8');
+if (NEGATIVE) {
+  const broken = workerOriginal.replace(
+    'left[held] = samples[f * channels] ?? 0;', 'left[held] = 0;');
+  if (broken === workerOriginal) { console.error('encoder control did not apply'); process.exit(1); }
+  await writeFile(workerPath, broken);
+}
+
 const cssPath = join(ROOT, 'apps/desktop/dist/renderer/ui/app.css');
 const cssOriginal = await readFile(cssPath, 'utf8');
 if (NEGATIVE) {
@@ -669,7 +684,8 @@ try {
        on one page, so nothing is behind a hover. */
     await page.click('.tab[data-tab="help"]');
     const help = (await page.textContent('[data-panel="help"]')).toLowerCase();
-    for (const subject of ['drag', 'double-click', 'playing', 'loop', 'record', 'playlist', 'pitch']) {
+    for (const subject of ['drag', 'double-click', 'playing', 'loop', 'record', 'playlist', 'pitch',
+      'mp3', 'save as type']) {
       check(`help answers a question about ${subject}`, help.includes(subject));
     }
 
@@ -1033,27 +1049,214 @@ try {
       `clock went ${apart.orange.before} -> ${apart.orange.during}`);
   }
 
-  console.log('\n--- one file of the take and the song together ---');
+  console.log('\n--- saving a take out, in the format he picks ---');
   {
-    /* Rendered in the page and checked as audio, not merely "a file appeared".
-       The take is a steady 440 Hz and the song is 440 on one side and 660 on
-       the other, so the mix must hold both — which is the whole claim. */
-    const mixed = await page.evaluate(async () => {
-      const list = await window.tva.listRecordings();
-      const takeBytes = await (await fetch(list[0].url)).arrayBuffer();
-      const probe = new OfflineAudioContext({ numberOfChannels: 2, length: 1, sampleRate: 44100 });
-      const takeBuf = await probe.decodeAudioData(takeBytes);
-      const songBuf = await probe.decodeAudioData(
-        await (await fetch(document.querySelector('.song.on') ? '' : '')).arrayBuffer().catch(() => new ArrayBuffer(0)),
-      ).catch(() => null);
-      return { takeSeconds: takeBuf.duration, takeChannels: takeBuf.numberOfChannels };
-    }).catch((e) => ({ error: String(e) }));
-    check('a take can be decoded back for mixing',
-      mixed.takeSeconds > 0.5, JSON.stringify(mixed).slice(0, 90));
+    /* The Save box is a Windows dialog, so it is answered here from the MAIN
+       process rather than the page — which also lets the check read what the
+       box was actually offered, instead of trusting that the filters are right. */
+    await app.evaluate(({ dialog }) => {
+      globalThis.__saveCalls = [];
+      globalThis.__saveNext = null;
+      dialog.showSaveDialog = async (_win, options) => {
+        globalThis.__saveCalls.push(options);
+        const filePath = globalThis.__saveNext;
+        return filePath ? { canceled: false, filePath, filterIndex: 1 } : { canceled: true };
+      };
+    });
+    const answerSaveBox = (target) =>
+      app.evaluate((_electron, value) => { globalThis.__saveNext = value; }, target);
 
-    check('and the button to make one file of it is offered',
-      (await page.$$('#takes .item .iacts .chip')).length >= 3,
-      'play it, save it with the song, remove');
+    /* Reads a file the app has written, back through the app's own protocol,
+       and measures what is in it. "A file appeared" proves nothing: the whole
+       point is whether the sound survived the encoder. */
+    const measure = async (filePath) => page.evaluate(async (target) => {
+      const url = `app://player/song/${encodeURIComponent(target)}`;
+      const response = await fetch(url);
+      if (!response.ok) return { error: `fetch ${response.status}` };
+      const bytes = await response.arrayBuffer();
+      /* The size is read BEFORE decoding. decodeAudioData takes ownership of the
+         buffer and detaches it, so afterwards byteLength is 0 — which made the
+         "smaller than the take" check compare zero against everything and pass
+         whatever the encoder had done. */
+      const size = bytes.byteLength;
+      if (size === 0) return { error: 'empty file' };
+      const ctx = new OfflineAudioContext({ numberOfChannels: 1, length: 1, sampleRate: 44100 });
+      const buf = await ctx.decodeAudioData(bytes);
+      const d = buf.getChannelData(0);
+      const from = Math.floor(buf.sampleRate * 0.4);
+      const seg = d.slice(from, from + Math.floor(buf.sampleRate * 0.5));
+      let peak = 0;
+      for (let i = 0; i < seg.length; i++) peak = Math.max(peak, Math.abs(seg[i]));
+      let best = 0; let lag = 0;
+      for (let t = Math.floor(buf.sampleRate / 1200); t <= Math.floor(buf.sampleRate / 200); t++) {
+        let acc = 0;
+        for (let i = 0; i + t < seg.length; i++) acc += seg[i] * seg[i + t];
+        if (acc > best) { best = acc; lag = t; }
+      }
+      return { seconds: buf.duration, bytes: size, peak, hz: lag ? buf.sampleRate / lag : 0 };
+    }, filePath);
+
+    await page.click('.tab[data-tab="takes"]');
+    await page.waitForSelector('#takes .item', { timeout: 10000 });
+
+    const row = await page.evaluate(() => {
+      const chips = [...document.querySelectorAll('#takes .item .iacts .chip')]
+        .slice(0, 4).map((c) => c.textContent);
+      const acts = document.querySelector('#takes .item .iacts');
+      const edges = [...acts.querySelectorAll('.chip')]
+        .map((c) => Math.round(c.getBoundingClientRect().right));
+      const tops = [...acts.querySelectorAll('.chip')]
+        .map((c) => Math.round(c.getBoundingClientRect().top));
+      return { chips, rowRight: Math.round(acts.getBoundingClientRect().right + 1), edges, tops };
+    });
+    check('a take row offers to save the voice on its own as well as with the song',
+      row.chips.length === 4 && /Save my voice/.test(row.chips[1]) && /Save with the song/.test(row.chips[2]),
+      row.chips.join(' | '));
+    check('and not one of the four buttons is cut off',
+      row.edges.every((right) => right <= row.rowRight),
+      `row ends at ${row.rowRight}, buttons at ${row.edges.join(', ')}`);
+    check('and they sit on one line, rather than three with the fourth below',
+      new Set(row.tops).size === 1,
+      `tops at ${row.tops.join(', ')}`);
+
+    /* 1. The voice on its own, as an MP3. This is the whole of the new feature:
+          a take the app recorded, out as something he can email. */
+    /* The message line is cleared first every time. Without that, the wait
+       below reads the PREVIOUS save's "Saved as …" and carries on measuring a
+       file that has not been written yet — which is exactly what happened the
+       first time this ran, and it looked like an encoder fault. */
+    const clearMessage = () => page.evaluate(() => { document.getElementById('msg').textContent = ''; });
+    const waitForSave = () => page.waitForFunction(
+      () => /^Saved as /.test(document.getElementById('msg').textContent), { timeout: 60000 });
+
+    const mp3Target = join(work, 'Just my voice.mp3');
+    await clearMessage();
+    await answerSaveBox(mp3Target);
+    await page.click('#takes .item .iacts .chip:nth-child(2)');
+    await waitForSave();
+
+    const offered = await app.evaluate(() => globalThis.__saveCalls.at(-1));
+    check('the Save box offers MP3 and WAV, and nothing that cannot be made',
+      offered.filters.length === 2
+      && offered.filters[0].extensions[0] === 'mp3'
+      && offered.filters[1].extensions[0] === 'wav',
+      JSON.stringify(offered.filters));
+
+    const asMp3 = await measure(mp3Target);
+    check('the MP3 holds the sound that was sung, at the pitch it was sung at',
+      !asMp3.error && asMp3.peak > 0.05 && Math.abs(asMp3.hz - 440) < 12,
+      `peak ${asMp3.peak?.toFixed(3)}, pitch ${asMp3.hz?.toFixed(1)} Hz against 440`);
+    check('and it is the length of the take, not a fragment of it',
+      !asMp3.error && asMp3.seconds > 1 && asMp3.seconds < 4.3,
+      `${asMp3.seconds?.toFixed(2)} seconds`);
+    /* The take the row is showing, which is the NEWEST — not whichever name
+       the folder listing happened to hand back first. Three takes were recorded
+       above, and comparing against the wrong one made a correct copy look
+       thirty kilobytes short. */
+    const takePath = await page.evaluate(async () => (await window.tva.listRecordings())[0].path);
+    const takeBytes = (await readFile(takePath)).length;
+    check('and it is far smaller than the take it came from',
+      asMp3.bytes < takeBytes / 2,
+      `${Math.round(asMp3.bytes / 1024)} KB against ${Math.round(takeBytes / 1024)} KB`);
+
+    /* 2. The voice on its own, as a WAV. Same rate, same channels, same sixteen
+          bits — so it must come out byte for byte, not merely close. */
+    const wavTarget = join(work, 'Just my voice.wav');
+    await clearMessage();
+    await answerSaveBox(wavTarget);
+    await page.click('#takes .item .iacts .chip:nth-child(2)');
+    await waitForSave();
+    const copied = await readFile(wavTarget);
+    const original_ = await readFile(takePath);
+    check('a take saved as a WAV is the take, byte for byte',
+      copied.length === original_.length && copied.equals(original_),
+      `${copied.length} bytes against ${original_.length}`);
+
+    /* 3. The take and the song in one file, which is the path that goes through
+          the slice-by-slice mixing. */
+    const mixTarget = join(work, 'With the song.mp3');
+    await clearMessage();
+    await answerSaveBox(mixTarget);
+    await page.click('#takes .item .iacts .chip:nth-child(3)');
+    await waitForSave();
+    const mixed = await measure(mixTarget);
+    check('the take and the song come out as one file with sound in it',
+      !mixed.error && mixed.peak > 0.05, JSON.stringify(mixed).slice(0, 90));
+    check('and it runs as long as the song, not just as long as the take',
+      !mixed.error && mixed.seconds > 5, `${mixed.seconds?.toFixed(2)} seconds against a 6 second song`);
+
+    /* 4. Cancelling the Save box does nothing at all. */
+    await answerSaveBox(null);
+    await clearMessage();
+    await page.click('#takes .item .iacts .chip:nth-child(2)');
+    await page.waitForFunction(
+      () => document.getElementById('msg').textContent.length > 0, { timeout: 10000 });
+    check('cancelling the Save box saves nothing and says so',
+      (await page.textContent('#msg')) === 'Nothing was saved.',
+      await page.textContent('#msg'));
+
+    /* 5. A save that goes wrong takes its part-written file with it. Left
+          behind in his Music folder, a half MP3 looks exactly like a take that
+          went wrong — which is a worse outcome than no file. */
+    const abandoned = join(work, 'Abandoned.mp3');
+    await page.evaluate(async (target) => {
+      const opened = await window.tva.exportOpen({ filePath: target });
+      await window.tva.exportWrite(opened.id, new Uint8Array(4096));
+      await window.tva.exportAbort(opened.id);
+    }, abandoned);
+    const left = (await readdir(work)).includes('Abandoned.mp3');
+    check('an abandoned save leaves no part-written file behind', left === false);
+
+    /* 6. A TAKE RECORDED AT AN UNUSUAL RATE. An interface running at 96 kHz is
+          the case that would quietly produce a file at the wrong speed, and the
+          reason there is no resampling step in the app at all is that LAME does
+          it — measured here rather than taken on trust. A tone that comes back
+          at 440 Hz went in and out at the right speed. */
+    const odd = await page.evaluate(() => new Promise((resolve) => {
+      const worker = new Worker('./workers/export-worker.js', { type: 'module' });
+      const parts = [];
+      worker.addEventListener('message', async (event) => {
+        if (event.data.type === 'bytes') { parts.push(event.data.bytes); return; }
+        worker.terminate();
+        let length = 0;
+        for (const part of parts) length += part.length;
+        const file = new Uint8Array(length);
+        let at = 0;
+        for (const part of parts) { file.set(part, at); at += part.length; }
+        try {
+          const ctx = new OfflineAudioContext({ numberOfChannels: 1, length: 1, sampleRate: 44100 });
+          const buf = await ctx.decodeAudioData(file.buffer);
+          const d = buf.getChannelData(0);
+          const from = Math.floor(buf.sampleRate * 0.3);
+          const seg = d.slice(from, from + Math.floor(buf.sampleRate * 0.5));
+          let best = 0; let lag = 0;
+          for (let t = Math.floor(buf.sampleRate / 1200); t <= Math.floor(buf.sampleRate / 200); t++) {
+            let acc = 0;
+            for (let i = 0; i + t < seg.length; i++) acc += seg[i] * seg[i + t];
+            if (acc > best) { best = acc; lag = t; }
+          }
+          resolve({ bytes: length, seconds: buf.duration, hz: lag ? buf.sampleRate / lag : 0 });
+        } catch (err) { resolve({ bytes: length, error: String(err) }); }
+      });
+      const rate = 96000;
+      const seconds = 2;
+      worker.postMessage({
+        type: 'begin', format: 'mp3', sampleRate: rate, channels: 1,
+        totalFrames: rate * seconds, kbps: 128,
+      });
+      const samples = new Int16Array(rate * seconds);
+      for (let i = 0; i < samples.length; i++) {
+        samples[i] = Math.round(Math.sin((2 * Math.PI * 440 * i) / rate) * 12000);
+      }
+      worker.postMessage({ type: 'pcm', samples }, [samples.buffer]);
+      worker.postMessage({ type: 'end' });
+    }));
+    check('a take from a 96 kHz interface still comes out at the pitch it was sung',
+      !odd.error && Math.abs(odd.hz - 440) < 12,
+      `pitch ${odd.hz?.toFixed(1)} Hz against 440`);
+    check('and at the speed it was sung, not half or double',
+      !odd.error && Math.abs(odd.seconds - 2) < 0.15,
+      `${odd.seconds?.toFixed(2)} seconds against 2`);
   }
 
   console.log('\n--- the tuner ---');
@@ -1121,6 +1324,27 @@ try {
         `tabs end at ${fit.tabsBottom} of ${fit.windowH}`);
       check(`and there is room to work under them at ${at}`, fit.deskH >= 90,
         `${fit.deskH}px of bench`);
+
+      /* The take row at every width, not just the one it was designed at. Four
+         buttons is what pushed this over: at half the panel's width the last of
+         them wrapped to a line of its own, which reads as a fault rather than a
+         layout, and that is why the Takes tab is one column now. */
+      await page.click('.tab[data-tab="takes"]');
+      const takeRow = await page.evaluate(() => {
+        const acts = document.querySelector('#takes .item .iacts');
+        if (!acts) return null;
+        const chips = [...acts.querySelectorAll('.chip')];
+        return {
+          count: chips.length,
+          tops: chips.map((c) => Math.round(c.getBoundingClientRect().top)),
+          overflow: chips.some((c) =>
+            c.getBoundingClientRect().right > acts.getBoundingClientRect().right + 1),
+        };
+      });
+      check(`a take's four buttons stay on one line at ${at}`,
+        takeRow && takeRow.count === 4 && new Set(takeRow.tops).size === 1 && !takeRow.overflow,
+        takeRow ? `${takeRow.count} buttons, tops ${takeRow.tops.join(', ')}` : 'no take row');
+      await page.click('.tab[data-tab="loop"]');
     }
     await page.setViewportSize({ width: 1180, height: 760 });
 
@@ -1190,6 +1414,7 @@ try {
     await writeFile(uiPath, uiOriginal);
     await writeFile(cssPath, cssOriginal);
     await writeFile(skinsPath, skinsOriginal);
+    await writeFile(workerPath, workerOriginal);
   }
   await rm(work, { recursive: true, force: true });
 }

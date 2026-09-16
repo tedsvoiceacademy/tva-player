@@ -12,7 +12,7 @@ const { pathToFileURL, fileURLToPath } = require('node:url');
 
 const core = require('@tva/practice-core');
 const { Store, defaultRoot, detectOneDrive } = require('./store.cjs');
-const { Recording, defaultRecordingsDir, repairUnfinished, listRecordings } = require('./recording.cjs');
+const { Recording, defaultRecordingsDir, repairUnfinished, listRecordings, safeName } = require('./recording.cjs');
 const { scanFolder, readTags, songLabel } = require('./library.cjs');
 const { openDefaultAppsSettings, readUserChoices } = require('./default-apps.cjs');
 const { registerShortcuts, KEYS } = require('./shortcuts.cjs');
@@ -469,17 +469,122 @@ ipcMain.handle('record:remove', async (_e, target) => {
   return true;
 });
 
-ipcMain.handle('record:saveMixed', async (_e, { suggestedName, bytes }) => {
+/* ---- Saving a take out, in the format he picks --------------------------
+ *
+ * The Save box comes FIRST and the encoding happens into the file he chose,
+ * rather than a whole file being built in memory and then offered. A take of a
+ * forty-five minute lesson is about 260 MB as a WAV and there is no reason for
+ * any of it to exist twice.
+ *
+ * So this is a file being written in pieces, which is the same shape as a
+ * recording and reuses the same two guards: the place in the file is claimed
+ * before anything is awaited, and the writes are chained so two are never in
+ * flight against one handle. An export that fails or is abandoned DELETES its
+ * part-written file — a half MP3 left in his Music folder would look exactly
+ * like a take that went wrong.
+ */
+const exports_ = new Map();          // id -> { filePath, handle, at, queue }
+let nextExportId = 1;
+
+const EXPORT_FILTERS = [
+  { name: 'MP3 audio', extensions: ['mp3'] },
+  { name: 'WAV audio', extensions: ['wav'] },
+];
+
+/* The format is read from the name Windows came back with, because that is what
+   he actually chose. filterIndex is the fallback for the one case where it
+   cannot be: a name typed with no extension at all. */
+function formatFor(filePath, filterIndex) {
+  const ext = path.extname(filePath).toLowerCase().replace('.', '');
+  if (ext === 'mp3' || ext === 'wav') return ext;
+  const filter = EXPORT_FILTERS[(filterIndex ?? 1) - 1] ?? EXPORT_FILTERS[0];
+  return filter.extensions[0];
+}
+
+ipcMain.handle('export:pick', async (_e, { suggestedName } = {}) => {
+  const base = safeName(suggestedName) || 'Take';
   const result = await dialog.showSaveDialog(win, {
-    title: 'Save the mixed file',
-    defaultPath: path.join(recordingsDir, `${suggestedName ?? 'Mixed'}.wav`),
-    filters: [{ name: 'WAV audio', extensions: ['wav'] }],
+    title: 'Save a copy',
+    defaultPath: path.join(recordingsDir, `${base}.mp3`),
+    filters: EXPORT_FILTERS,
   });
   if (result.canceled || !result.filePath) return null;
-  await fsp.writeFile(result.filePath, Buffer.from(bytes));
-  allowedPaths.add(result.filePath);
-  return result.filePath;
+  let filePath = result.filePath;
+  const format = formatFor(filePath, result.filterIndex);
+  if (!path.extname(filePath)) filePath = `${filePath}.${format}`;
+  return { filePath, format };
 });
+
+/* A take saved as a WAV is the file it already is: same rate, same channels,
+   same 16 bits. Copying it is both instant and exact, where a round trip
+   through float and back would not be. */
+ipcMain.handle('export:copy', async (_e, { from, to }) => {
+  const takes = await listRecordings(recordingsDir);
+  if (!takes.some((t) => t.path === from)) return { error: 'That is not one of your takes.' };
+  try {
+    await fsp.copyFile(from, to);
+    allowedPaths.add(to);
+    return { path: to };
+  } catch (err) {
+    return { error: `That could not be saved. ${err.message}` };
+  }
+});
+
+ipcMain.handle('export:open', async (_e, { filePath }) => {
+  try {
+    const handle = await fsp.open(filePath, 'w');
+    const id = nextExportId++;
+    exports_.set(id, { filePath, handle, at: 0, queue: Promise.resolve(), failed: null });
+    return { id };
+  } catch (err) {
+    return { error: `That file could not be opened for writing. ${err.message}` };
+  }
+});
+
+ipcMain.handle('export:write', async (_e, { id, bytes }) => {
+  const job = exports_.get(id);
+  if (!job || !job.handle) return false;
+  const buffer = Buffer.from(bytes);
+  const at = job.at;
+  job.at += buffer.length;
+  const handle = job.handle;
+  job.queue = job.queue.then(() => handle.write(buffer, 0, buffer.length, at))
+    .catch((err) => { job.failed = err; });
+  await job.queue;
+  return !job.failed;
+});
+
+ipcMain.handle('export:finish', async (_e, { id }) => {
+  const job = exports_.get(id);
+  if (!job) return null;
+  exports_.delete(id);
+  await job.queue.catch(() => {});
+  try {
+    if (job.failed) throw job.failed;
+    await job.handle.sync();
+    await job.handle.close();
+    allowedPaths.add(job.filePath);
+    return { path: job.filePath, bytes: job.at };
+  } catch (err) {
+    try { await job.handle.close(); } catch {}
+    try { await fsp.rm(job.filePath, { force: true }); } catch {}
+    return { error: `That could not be saved. ${err.message}` };
+  }
+});
+
+ipcMain.handle('export:abort', async (_e, { id }) => {
+  const job = exports_.get(id);
+  if (!job) return false;
+  exports_.delete(id);
+  await job.queue.catch(() => {});
+  try { await job.handle.close(); } catch {}
+  try { await fsp.rm(job.filePath, { force: true }); } catch {}
+  return true;
+});
+
+/* The formats the app can actually produce. The page asks rather than assuming,
+   so there is one list and the Save box cannot drift away from it. */
+ipcMain.handle('export:formats', () => EXPORT_FILTERS.map((f) => f.extensions[0]));
 
 ipcMain.handle('record:folder', async () => {
   await shell.openPath(recordingsDir);

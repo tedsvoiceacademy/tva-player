@@ -368,6 +368,73 @@ try {
     take.peak > 0.05 && Math.abs(take.hz - 440) < 12,
     `${take.seconds.toFixed(2)}s, peak ${take.peak.toFixed(3)}, ${take.hz.toFixed(1)} Hz against 440`);
 
+  console.log('\n--- saving a take out, from inside the package ---');
+  /* THE MP3 ENCODER IS A FILE COPIED BESIDE THE PAGE, like the stretch engine,
+     and it is loaded by a WORKER rather than by the page — a second thing an
+     archive can break, and one that would fail only at the moment Ted tries to
+     save something. So the encoder is run out of the package, the bytes are
+     written through the app's own export doors, and the file that lands is read
+     back and measured. */
+  const exported = await page.evaluate(async (target) => {
+    const list = await window.tva.listRecordings();
+    const head = new Uint8Array(await (await fetch(list[0].url, {
+      headers: { Range: 'bytes=0-43' },
+    })).arrayBuffer());
+    const view = new DataView(head.buffer);
+    const channels = view.getUint16(22, true) || 1;
+    const sampleRate = view.getUint32(24, true) || 48000;
+    const body = await (await fetch(list[0].url, {
+      headers: { Range: `bytes=44-${list[0].bytes - 1}` },
+    })).arrayBuffer();
+    const samples = new Int16Array(body);
+
+    const opened = await window.tva.exportOpen({ filePath: target });
+    if (!opened || opened.error) return { error: opened?.error ?? 'could not open' };
+
+    await new Promise((resolve, reject) => {
+      const worker = new Worker('./workers/export-worker.js', { type: 'module' });
+      let writes = Promise.resolve();
+      worker.addEventListener('error', (e) => reject(new Error(e.message || 'worker failed')));
+      worker.addEventListener('message', (event) => {
+        if (event.data.type === 'bytes') {
+          writes = writes.then(() => window.tva.exportWrite(opened.id, event.data.bytes));
+        } else if (event.data.type === 'done') { writes.then(resolve, reject); worker.terminate(); }
+        else if (event.data.type === 'error') reject(new Error(event.data.message));
+      });
+      worker.postMessage({
+        type: 'begin', format: 'mp3', sampleRate, channels,
+        totalFrames: samples.length / channels, kbps: 128,
+      });
+      worker.postMessage({ type: 'pcm', samples }, [samples.buffer]);
+      worker.postMessage({ type: 'end' });
+    });
+    const saved = await window.tva.exportFinish(opened.id);
+    if (!saved || saved.error) return { error: saved?.error ?? 'could not finish' };
+
+    const file = await (await fetch(`app://player/song/${encodeURIComponent(saved.path)}`)).arrayBuffer();
+    const size = file.byteLength;
+    const ctx = new OfflineAudioContext({ numberOfChannels: 1, length: 1, sampleRate: 44100 });
+    const buf = await ctx.decodeAudioData(file);
+    const d = buf.getChannelData(0);
+    const seg = d.slice(Math.floor(buf.sampleRate * 0.4), Math.floor(buf.sampleRate * 0.9));
+    let peak = 0;
+    for (let i = 0; i < seg.length; i++) peak = Math.max(peak, Math.abs(seg[i]));
+    let best = 0; let lag = 0;
+    for (let t = Math.floor(buf.sampleRate / 1200); t <= Math.floor(buf.sampleRate / 200); t++) {
+      let acc = 0;
+      for (let i = 0; i + t < seg.length; i++) acc += seg[i] * seg[i + t];
+      if (acc > best) { best = acc; lag = t; }
+    }
+    return { size, seconds: buf.duration, peak, hz: lag ? buf.sampleRate / lag : 0 };
+  }, join(work, 'Take from the installed app.mp3')).catch((e) => ({ error: String(e.message ?? e) }));
+
+  check('a take saves out as an MP3 that holds the sound that was sung',
+    !exported.error && exported.peak > 0.05 && Math.abs(exported.hz - 440) < 12,
+    exported.error ?? `${exported.seconds?.toFixed(2)}s, peak ${exported.peak?.toFixed(3)}, ${exported.hz?.toFixed(1)} Hz against 440`);
+  check('and the formats offered are the two the app can really make',
+    JSON.stringify(await page.evaluate(() => window.tva.exportFormats())) === '["mp3","wav"]',
+    JSON.stringify(await page.evaluate(() => window.tva.exportFormats())));
+
   console.log('\n--- the tuner, from inside the package ---');
   await page.waitForFunction(
     () => document.getElementById('t-note').textContent !== '—', { timeout: 20000 });

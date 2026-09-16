@@ -76,6 +76,20 @@ on, **Your voice** appears in the display with a bar showing how loud you are.
 Takes are listed under **Takes**, kept as WAV files. You can also record what the
 computer itself is playing, from that same tab.
 
+**Getting a take out.** Every take carries two save buttons. **Save my voice**
+saves that take on its own; **Save with the song** makes one file of your take
+and the song together, which is the one to send to somebody who was not there.
+Either opens the usual Windows Save box, and you pick the format from the
+**Save as type** list at the bottom:
+
+| | |
+|---|---|
+| **MP3** | Small enough to email or put on a phone — a 45-minute lesson comes out around 40 MB |
+| **WAV** | Full quality, about six times the size. A take saved as a WAV on its own is an exact copy, so it happens instantly |
+
+A long lesson takes a little while to save as an MP3. The button counts up while
+it works and the app stays usable throughout.
+
 **Notes.** Pin a note to a moment in a song and click it later to jump there.
 
 **Click track.** A metronome over the song, with a count-in.

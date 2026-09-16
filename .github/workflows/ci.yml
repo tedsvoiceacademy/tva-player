@@ -79,7 +79,20 @@ jobs:
         with: { node-version: 22, cache: npm }
       - uses: actions/setup-java@v4
         with: { distribution: temurin, java-version: '21' }
-      - uses: android-actions/setup-android@v3
+
+      # NOT android-actions/setup-android. That action asks the SDK manager for
+      # a package called 'tools', which Google removed years ago, so it fails on
+      # the spot with "Failed to find package 'tools'" and nothing is built. The
+      # runner image already carries the whole SDK; all this does is accept the
+      # licences and make sure the two pieces this build names are present.
+      - name: The Android SDK the build asks for
+        run: |
+          SDK="${ANDROID_SDK_ROOT:-$ANDROID_HOME}"
+          CMD="$SDK/cmdline-tools/latest/bin/sdkmanager"
+          [ -x "$CMD" ] || CMD=$(ls -d "$SDK"/cmdline-tools/*/bin/sdkmanager | head -1)
+          echo "Using $CMD"
+          yes | "$CMD" --licenses > /dev/null || true
+          "$CMD" "platform-tools" "platforms;android-35" "build-tools;35.0.0"
 
       - run: npm ci
       - name: Build the web half

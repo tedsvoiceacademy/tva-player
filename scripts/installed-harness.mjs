@@ -269,6 +269,35 @@ try {
     (await page.$$('.raillist .song')).length === 1,
     `${(await page.$$('.raillist .song')).length} songs`);
 
+  console.log('\n--- a song too long to hold in memory ---');
+  /* THIS RUNS FIRST, before anything else touches the speed engine. The refusal
+     only happens on the way INTO that engine, so once another check has started
+     it there is nothing left to refuse and this one reads whatever message was
+     last on screen. Re-opening the song ought to put it back, and does locally —
+     but it went red on Windows anyway, and a check that depends on the order of
+     everything before it is a check that will go red again. */
+  const refusal = await page.evaluate(async () => {
+    const before = document.getElementById('msg').textContent;
+    window.__tvaFakeDuration(1900);
+    const el = document.getElementById('speed');
+    el.value = '70'; el.dispatchEvent(new Event('input', { bubbles: true }));
+    await new Promise((r) => setTimeout(r, 400));
+    return { before, after: document.getElementById('msg').textContent };
+  }).catch((e) => ({ error: String(e.message ?? e) }));
+  check('a song too long for the speed control is refused in words',
+    (refusal.after ?? '').includes('minutes'),
+    refusal.error ?? refusal.after);
+
+  /* Put the real song back. The pretend half-hour is a module variable, and
+     leaving it set would hand every later check a song whose length is a lie. */
+  await page.evaluate(async () => {
+    document.getElementById('speed').value = '100';
+    document.getElementById('speed').dispatchEvent(new Event('input', { bubbles: true }));
+    await window.__tvaOpenFirstArg();
+  });
+  await page.waitForFunction(
+    () => document.getElementById('t-total').textContent === '0:08', { timeout: 15000 });
+
   console.log('\n--- the stretch engine, from inside the package ---');
   /* The library is a file COPIED beside the page at build time, and its worklet
      is registered from a blob. Both have to survive being put in an archive. */
@@ -388,24 +417,6 @@ try {
         ? `answered, then ${loopback.error} — this machine has no desktop sound to give`
         : `${loopback.audio} sound track, ${loopback.video} picture track (the picture is thrown away)`);
 
-  console.log('\n--- a song too long to hold in memory ---');
-  const refusal = await page.evaluate(async () => {
-    /* Open the song again first. The refusal only fires on the way INTO the
-       speed engine, so once an earlier check has started it there is nothing
-       left to refuse — and this check then reads whatever message happened to
-       be on screen. Re-opening puts the player back on the streaming path. */
-    await window.__tvaOpenFirstArg();
-    await new Promise((r) => setTimeout(r, 600));
-    const before = document.getElementById('msg').textContent;
-    window.__tvaFakeDuration(1900);
-    const el = document.getElementById('speed');
-    el.value = '70'; el.dispatchEvent(new Event('input', { bubbles: true }));
-    await new Promise((r) => setTimeout(r, 400));
-    return { before, after: document.getElementById('msg').textContent };
-  }).catch((e) => ({ error: String(e.message ?? e) }));
-  check('a song too long for the speed control is refused in words',
-    (refusal.after ?? '').includes('minutes'),
-    refusal.error ?? refusal.after);
 } finally {
   await browser.close().catch(() => {});
   try { child.kill(); } catch {}

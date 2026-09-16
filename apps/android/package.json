@@ -1,0 +1,16 @@
+{
+  "name": "tva-player-android",
+  "version": "0.1.0",
+  "private": true,
+  "description": "The same player, on an Android phone: one Capacitor shell around the renderer the Windows app already runs.",
+  "scripts": {
+    "build:web": "node ../../scripts/build-android.mjs",
+    "sync": "npm run build:web && cap sync android",
+    "apk": "npm run sync && cd android && ./gradlew assembleDebug"
+  },
+  "devDependencies": {
+    "@capacitor/android": "^7.0.0",
+    "@capacitor/cli": "^7.0.0",
+    "@capacitor/core": "^7.0.0"
+  }
+}

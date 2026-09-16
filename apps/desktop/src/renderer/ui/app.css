@@ -142,7 +142,11 @@ body {
   grid-template-columns: 264px minmax(0, 1fr);
   gap: 14px;
 }
-@media (max-width: 900px) { #tp { grid-template-columns: 1fr; } #tp .rail { display: none; } }
+/* The DIRECT child, not any rail anywhere inside. What this rule means is
+   "there is no room for a side column", and on a phone the same list is moved
+   into a tab of its own — where a descendant selector went on hiding it, and
+   left no way to reach a song at all. */
+@media (max-width: 900px) { #tp { grid-template-columns: 1fr; } #tp > .rail { display: none; } }
 
 .mid {
   min-width: 0; min-height: 0;
@@ -724,6 +728,16 @@ body {
   font-size: 0.82rem; color: var(--cream); opacity: 0.9; cursor: pointer;
 }
 .sw input { width: 16px; height: 16px; accent-color: var(--gold); }
+
+/* One page, two machines. The phone build serves this same markup with
+   data-platform="android" on <html>; anything marked for the other one is not
+   there at all, rather than there and broken. */
+/* Written as two "hide the other one" rules rather than a hide-and-show pair.
+   Showing means naming a display value, and the right one differs per element —
+   a tab is inline-flex, a note is block — so a show rule would quietly flatten
+   whichever it touched. */
+html:not([data-platform='android']) [data-only='android'] { display: none !important; }
+html[data-platform='android'] [data-only='windows'] { display: none !important; }
 
 /* ---- the bench below the case ------------------------------------------- */
 

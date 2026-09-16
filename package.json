@@ -6,7 +6,8 @@
   "description": "Ted's Voice Academy audio player and practice recorder for Windows",
   "workspaces": [
     "packages/*",
-    "apps/desktop"
+    "apps/desktop",
+    "apps/android"
   ],
   "scripts": {
     "dev": "npm run dev -w tva-player",

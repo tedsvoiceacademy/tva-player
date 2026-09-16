@@ -29,6 +29,19 @@ build's own page.
 To update later, download a new installer the same way and run it over the top.
 It keeps all your settings.
 
+## On your Android phone
+
+There is an Android build of the same app now — the same engine, the same
+controls, the same twelve skins, laid out for a phone. It installs from a file
+rather than from the Play Store. **See `docs/ANDROID.md`** for how to get it on
+and what differs (the song list and the sound switches become tabs, and songs
+come from Android's own picker, which reaches your phone, OneDrive and every
+Google Drive account at once).
+
+Android Auto is not in it yet, and is worth knowing about before it is: Auto
+draws its own screen for media apps — a list, play, pause, skip — so the dials,
+the waveform and the recorder can never appear in the car.
+
 ## What it does
 
 **Your songs.** Click **Add a folder** and point it at where you keep your

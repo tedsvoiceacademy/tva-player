@@ -79,13 +79,32 @@ over for a real interface can only be found out here.
 21. Cancel the Save box, and pull a USB drive out mid-save. Neither leaves a
     part-written file behind.
 
+## On the phone — THE THINGS NO CHECK CAN REACH
+
+No build runner has Android's document picker, a Drive account, or a phone's
+audio hardware. Everything above those is checked at 390 pixels on every build;
+these are what is left.
+
+22. Open a song from **phone storage**, from **OneDrive**, and from **each Google
+   Drive account**. All three should look identical to the app.
+23. Play a 45-minute file straight from Drive and seek about in it. This is the
+   one that tests range requests over a real connection rather than a local disk.
+24. **Add a folder.** Note which providers offer one — local storage should, and
+   Google Drive is expected not to offer it at all.
+25. Record a take on the phone's own microphone and play it back.
+26. Save a take as an MP3 to Drive, and open it on the computer.
+27. Turn the screen off while a song plays. A page loses its audio when Android
+   sleeps unless something holds it awake, and nothing does yet — so this is
+   expected to stop, and the fix belongs with the Android Auto work.
+28. Rotate the phone. The case should stay whole.
+
 ## Updates
 
-22. Install version N, publish N+1, confirm the notice appears and the new
+29. Install version N, publish N+1, confirm the notice appears and the new
     version is in place after closing the app.
 
 ## Media keys
 
-23. Press play/pause while Chrome has the focus, then while Spotify does. If
+30. Press play/pause while Chrome has the focus, then while Spotify does. If
     another app has claimed a key, the app says which one rather than doing
     nothing silently.

@@ -57,6 +57,54 @@ jobs:
       - name: The packaged app, launched and driven
         run: xvfb-run -a node scripts/installed-harness.mjs
 
+      # THE PHONE BUILD IS THE SAME RENDERER, so it is checked the same way: at
+      # 390 pixels, with a real song and a real microphone signal, and with the
+      # phone stylesheet taken away to prove the layout checks can fail.
+      - name: The phone build, at the size of a phone
+        run: |
+          npx playwright install --with-deps chromium
+          node scripts/build-android.mjs
+          xvfb-run -a node scripts/phone-harness.mjs
+
+      - name: And prove those checks can fail
+        run: xvfb-run -a node scripts/phone-harness.mjs --negative-control
+
+  # The Android app itself. Separate from the checks job because it needs the
+  # Android SDK, and separate from Windows because it has nothing to do with it.
+  android:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: npm }
+      - uses: actions/setup-java@v4
+        with: { distribution: temurin, java-version: '21' }
+      - uses: android-actions/setup-android@v3
+
+      - run: npm ci
+      - name: Build the web half
+        run: node scripts/build-android.mjs
+
+      - name: Put it into the Android project
+        run: npx cap sync android
+        working-directory: apps/android
+
+      # An .exe Ted can run and an .apk he can tap are the same kind of thing:
+      # something to install without a store in the way. Debug-signed, because a
+      # release build needs a keystore and Android will not install an unsigned
+      # one at all.
+      - name: Build the app
+        run: ./gradlew --no-daemon assembleDebug
+        working-directory: apps/android/android
+
+      - name: Attach it to this run
+        uses: actions/upload-artifact@v4
+        with:
+          name: TVA-Player-android
+          path: apps/android/android/app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
+          retention-days: 30
+
   # The same on real Windows, and then the installed app — which is the only
   # thing Ted ever actually runs.
   windows:

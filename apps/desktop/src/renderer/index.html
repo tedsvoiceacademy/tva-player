@@ -2,7 +2,16 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
+<!-- WITHOUT THIS A PHONE LAYS THE PAGE OUT AT 980 CSS PIXELS and then scales the
+     whole thing down, so every phone rule misses, every button is a third of the
+     size it says it is, and the text is unreadable. It changes nothing on
+     Windows. viewport-fit=cover is what lets the page reach under the notch,
+     with the safe-area insets in phone.css putting the content back. -->
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>TVA Player</title>
+<!-- The app has no favicon and does not need one; without this the page asks
+     for one anyway and the console fills with a 404 that means nothing. -->
+<link rel="icon" href="data:,">
 <link rel="stylesheet" href="./ui/app.css">
 <link rel="stylesheet" href="./ui/skins.css">
 </head>
@@ -45,7 +54,12 @@
       <button type="button" id="open" class="pill wide">
         <span class="ic" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M3 5h6l2 2h10v12H3zm2 4v8h14V9z"/></svg></span>Open a song
       </button>
-      <p class="dropnote">Or drag a song straight into this window.</p>
+      <!-- data-only marks a line that belongs to one machine. The phone build
+           serves this same file with data-platform="android" on <html>, and the
+           stylesheet hides whatever does not apply — one page, two machines,
+           rather than two pages that drift apart. -->
+      <p class="dropnote" data-only="windows">Or drag a song straight into this window.</p>
+      <p class="dropnote" data-only="android">Your music, and anything in Drive or OneDrive.</p>
     </div>
   </aside>
 
@@ -105,7 +119,8 @@
         <div class="ruler" id="ruler" aria-hidden="true"></div>
       </div>
 
-      <p class="wavehint">Click the wave to jump · drag across it to mark a loop · double-click any dial to put it back to normal</p>
+      <p class="wavehint" data-only="windows">Click the wave to jump · drag across it to mark a loop · double-click any dial to put it back to normal</p>
+      <p class="wavehint" data-only="android">Tap the wave to jump · drag across it to mark a loop · double-tap any dial to put it back to normal</p>
 
       <!-- RECORDING IS PART OF THE INSTRUMENT, NOT A FORM UNDER IT.
            Ted: "Ideally, it would simply be an added layer to the playback
@@ -235,6 +250,17 @@
     <!-- THE BENCH. Ted read straight past this strip the first time, so it is
          now a labelled row of tabs joined to the panel below it. -->
     <nav class="tabs" role="tablist" aria-label="Sections">
+      <!-- ON A PHONE THE SONG LIST IS A TAB. The column it lives in on Windows
+           is already hidden below 900 pixels, which on a phone left no way to
+           reach a song at all — so the list itself is moved in here, the same
+           element, rather than being built a second time. -->
+      <button type="button" class="tab" role="tab" data-tab="songs" data-only="android" aria-selected="false">Your songs</button>
+      <!-- The three sound switches are a row inside the case on Windows. On a
+           phone that row is 200 pixels of the screen, and the case then does not
+           fit — so they get a tab, WITH the sentence under each one that says
+           what it does. Shrinking them to three bare words would have fitted and
+           told a newcomer nothing. -->
+      <button type="button" class="tab" role="tab" data-tab="sound" data-only="android" aria-selected="false">Sound</button>
       <button type="button" class="tab on" role="tab" data-tab="loop" aria-selected="true">Loop</button>
       <button type="button" class="tab" role="tab" data-tab="takes" aria-selected="false">Takes</button>
       <button type="button" class="tab" role="tab" data-tab="notes" aria-selected="false">Notes</button>
@@ -245,6 +271,17 @@
 
     <div class="deskwrap">
       <!-- Loop -->
+      <section class="desk wide1" data-panel="sound" data-only="android" hidden>
+        <div class="panel">
+          <h2 class="plab">How the song sounds</h2>
+          <div id="sound-host"></div>
+        </div>
+      </section>
+
+      <section class="desk wide1" data-panel="songs" data-only="android" hidden>
+        <div class="panel" id="songs-host"></div>
+      </section>
+
       <section class="desk" data-panel="loop">
         <div class="panel">
           <h2 class="plab">Loop</h2>
@@ -376,7 +413,7 @@
           <p class="note">Each input you tick is recorded to its own file, and one more file holds
             them all mixed together. Untick an input with nothing plugged into it, or it records
             silence for the whole lesson.</p>
-          <div class="looprow">
+          <div class="looprow" data-only="windows">
             <button type="button" id="defaults-open" class="chip">Make this the app that opens my music</button>
             <span class="note" id="defaults-state">Windows will not let an app do this by itself — it opens Settings so you can confirm it once.</span>
           </div>

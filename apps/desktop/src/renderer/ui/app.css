@@ -14,7 +14,17 @@
  * the parts already named for the song sit beside it instead of being buried.
  */
 
+/* EVERY COLOUR IS A TOKEN, so a skin is a list of values rather than a rewrite.
+ *
+ * Two axes, both set on <html>: data-skin picks the palette and data-finish
+ * picks how the case is lit — glossy, flat or matte. They are independent, so
+ * "the plain grey one, but glossy" costs nothing to try.
+ *
+ * ui/skins.css holds the ten. This block is the default, Studio navy, and is
+ * also the full list of what a skin may set: anything NOT here is a shape, and
+ * shapes do not change between skins. */
 :root {
+  /* ink */
   --navy-deep: #0a1628;
   --navy-mid: #1a2d4d;
   --gold: #d4a84b;
@@ -23,6 +33,70 @@
   --white: #ffffff;
   --lit: #ffd98a;
   --ahead: #33507f;
+
+  /* the case */
+  --case-hi: #1c3054;
+  --case-mid: #142443;
+  --case-low: #0b1830;
+  --hero-mid: #142443;
+
+  /* lit glass: the readout, the tuner, the level */
+  --glass-hi: #16304a;
+  --glass-low: #061020;
+  /* the bottom of a well: the wave, the meter trough, a text box */
+  --well: #050c18;
+  --knob-cap: #23334f;
+
+  /* signals */
+  --ok: #7ff0a8;
+  --rec: #ff7a7a;
+  --rec-hi: #e06060;
+  --rec-low: #b13a3a;
+  --rec-lamp: #ff6b6b;
+  --rec-lamp-ink: #ff9b9b;
+  --warn: #ffc98a;
+  --over-hi: #f09669;
+  --over-low: #b56537;
+  --over-on-hi: #e08050;
+  --over-on-low: #8f4620;
+  --over-ink: #2b1508;
+  --mic-on-hi: #4fbf7a;
+  --mic-on-low: #2c7a4c;
+  --meter-1: #4fbf7a;
+  --meter-2: #9ed36a;
+  --meter-3: #e0b85c;
+  --meter-4: #e06060;
+
+  /* the waveform, read by the canvas — see drawWave in ui/app.js */
+  --wave-played: #d4a84b;
+  --wave-ahead: #33507f;
+  --wave-head: #f5f0e1;
+  --wave-flat: #16294a;
+  --wave-loop: 212, 168, 75;
+
+  /* FINISH, not colour. A flat skin sets the glows to none; a matte one also
+     drops the grain, so the case stops pretending to be lit glass. */
+  --grain: url('./noise-texture.png');
+  --grain-blend: soft-light;
+  --case-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.16),
+                 inset 0 -1px 0 rgba(0, 0, 0, 0.5),
+                 0 22px 48px rgba(0, 0, 0, 0.5);
+  /* WHOLE VALUES, not pieces. A token dropped into a shadow list means
+     "box-shadow: A, none, B" the moment a finish sets it to none — which is
+     invalid CSS, so the browser throws the whole declaration away and the
+     shadow vanishes for a reason nobody wrote down. */
+  --glass-shadow: inset 0 2px 12px rgba(0, 0, 0, 0.78), 0 0 0 1px rgba(212, 168, 75, 0.14);
+  --panel-glass-shadow: inset 0 2px 12px rgba(0, 0, 0, 0.78);
+  --lit-glow: 0 0 16px rgba(255, 190, 70, 0.5);
+  --name-glow: 0 0 9px rgba(255, 196, 84, 0.55);
+  --btn-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.18), 0 2px 6px rgba(0, 0, 0, 0.4);
+  --play-shadow: inset 0 1px 0 rgba(255,255,255,0.5),
+                 0 0 22px rgba(212, 168, 75, 0.42), 0 3px 9px rgba(0,0,0,0.5);
+  --panel-border: rgba(255, 255, 255, 0.07);
+  --ok-glow: 0 0 9px rgba(127, 240, 168, 0.9);
+  --rec-glow: 0 0 9px rgba(255, 107, 107, 0.9);
+  --gold-deep: #b98f33;
+  --on-gold: #17233c;
 }
 
 * { box-sizing: border-box; }
@@ -42,10 +116,10 @@ html, body { height: 100%; }
 body {
   margin: 0; overflow: hidden;
   background:
-    url('./noise-texture.png') repeat,
-    radial-gradient(120% 90% at 50% 0%, #142443 0%, var(--navy-deep) 70%);
+    var(--grain) repeat,
+    radial-gradient(120% 90% at 50% 0%, var(--hero-mid) 0%, var(--navy-deep) 70%);
   background-size: 200px 200px, 100% 100%;
-  background-blend-mode: soft-light, normal;
+  background-blend-mode: var(--grain-blend), normal;
   background-color: var(--navy-deep);   /* the image alone leaves this transparent */
   color: var(--cream);
   font: 15px/1.55 "Segoe UI", system-ui, sans-serif;
@@ -105,7 +179,7 @@ body {
 .railrow .chip { font-size: 0.71rem; padding: 0.26rem 0.6rem; }
 .mini {
   font: inherit; font-size: 0.72rem; padding: 0.22rem 0.4rem; border-radius: 999px;
-  border: 1px solid rgba(255, 255, 255, 0.14); background: #0b1830; color: var(--cream);
+  border: 1px solid rgba(255, 255, 255, 0.14); background: var(--case-low); color: var(--cream);
   max-width: 8.5rem;
 }
 .raillist { flex: 1 1 auto; min-height: 0; overflow-y: auto; overflow-x: hidden; }
@@ -156,15 +230,12 @@ body {
   padding: 12px 16px 12px;
   border-radius: 16px;
   background:
-    url('./noise-texture.png') repeat,
-    linear-gradient(180deg, #1c3054 0%, #142443 42%, #0b1830 100%);
+    var(--grain) repeat,
+    linear-gradient(180deg, var(--case-hi) 0%, var(--case-mid) 42%, var(--case-low) 100%);
   background-size: 200px 200px, 100% 100%;
-  background-blend-mode: soft-light, normal;
+  background-blend-mode: var(--grain-blend), normal;
   border: 1px solid rgba(212, 168, 75, 0.3);
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.16),
-    inset 0 -1px 0 rgba(0, 0, 0, 0.5),
-    0 22px 48px rgba(0, 0, 0, 0.5);
+  box-shadow: var(--case-shadow);
 }
 
 /* ---- the lit readout ---------------------------------------------------- */
@@ -176,9 +247,9 @@ body {
   border-radius: 10px; padding: 9px 15px;
   background:
     repeating-linear-gradient(0deg, rgba(255,255,255,0.035) 0 1px, transparent 1px 3px),
-    radial-gradient(120% 160% at 12% 0%, #16304a 0%, #061020 70%);
+    radial-gradient(120% 160% at 12% 0%, var(--glass-hi) 0%, var(--glass-low) 70%);
   border: 1px solid rgba(0, 0, 0, 0.6);
-  box-shadow: inset 0 2px 12px rgba(0, 0, 0, 0.78), 0 0 0 1px rgba(212, 168, 75, 0.14);
+  box-shadow: var(--glass-shadow);
 }
 
 .r-top { display: flex; align-items: center; gap: 10px; min-width: 0; }
@@ -187,7 +258,7 @@ body {
   flex: 1 1 auto; min-width: 0;
   font-family: Consolas, ui-monospace, "SF Mono", Menlo, monospace;
   font-size: 0.86rem; letter-spacing: 0.07em; font-weight: 600;
-  color: var(--lit); text-shadow: 0 0 9px rgba(255, 196, 84, 0.55);
+  color: var(--lit); text-shadow: var(--name-glow);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 
@@ -204,16 +275,16 @@ body {
   background: rgba(255, 216, 138, 0.16);
   box-shadow: inset 0 0 3px rgba(0, 0, 0, 0.8);
 }
-.lamp.lit { opacity: 1; color: #7ff0a8; }
-.lamp.lit i { background: #7ff0a8; box-shadow: 0 0 9px rgba(127, 240, 168, 0.9); }
-.lamp.rec.lit { color: #ff9b9b; }
+.lamp.lit { opacity: 1; color: var(--ok); }
+.lamp.lit i { background: var(--ok); box-shadow: var(--ok-glow); }
+.lamp.rec.lit { color: var(--rec-lamp-ink); }
 @media (max-width: 1080px) { .lamps { font-size: 0; gap: 6px; } .lamps .lamp { gap: 0; } }
 
 .r-clock {
   display: flex; align-items: baseline; gap: 8px; margin-top: 2px;
   font-family: Consolas, ui-monospace, "SF Mono", Menlo, monospace;
   font-size: 1.72rem; font-weight: 600; line-height: 1.02;
-  color: var(--lit); text-shadow: 0 0 16px rgba(255, 190, 70, 0.5);
+  color: var(--lit); text-shadow: var(--lit-glow);
   font-variant-numeric: tabular-nums;
 }
 .r-clock .sep, .r-clock #t-total { font-size: 1.05rem; opacity: 0.55; }
@@ -259,12 +330,12 @@ body {
 }
 #wave {
   display: block; width: 100%; height: 82px; border-radius: 8px 8px 0 0;
-  background: #050c18; touch-action: none; cursor: pointer;
+  background: var(--well); touch-action: none; cursor: pointer;
 }
 .ruler {
   display: flex; justify-content: space-between;
   padding: 1px 6px 2px; border-radius: 0 0 8px 8px;
-  background: #050c18;
+  background: var(--well);
   font-family: Consolas, ui-monospace, monospace;
   font-size: 0.64rem; color: var(--cream); opacity: 0.4;
 }
@@ -336,7 +407,7 @@ body {
   border-radius: 999px; cursor: pointer; padding: 0;
   background: linear-gradient(180deg, rgba(255,255,255,0.12), rgba(255,255,255,0.03));
   border: 1px solid rgba(255, 255, 255, 0.12);
-  box-shadow: inset 0 1px 0 rgba(255,255,255,0.18), 0 2px 6px rgba(0,0,0,0.4);
+  box-shadow: var(--btn-shadow);
 }
 .tbtn svg { width: 19px; height: 19px; fill: var(--cream); opacity: 0.9; }
 .tbtn:hover:not(:disabled) { filter: brightness(1.3); }
@@ -346,12 +417,11 @@ body {
 /* Only play is lit — the one rule that survived every Vocal Fit round. */
 .tbtn.main {
   width: 52px; height: 52px;
-  background: linear-gradient(180deg, var(--gold-hover), #b98f33);
+  background: linear-gradient(180deg, var(--gold-hover), var(--gold-deep));
   border-color: rgba(255, 226, 160, 0.65);
-  box-shadow: inset 0 1px 0 rgba(255,255,255,0.5),
-              0 0 22px rgba(212, 168, 75, 0.42), 0 3px 9px rgba(0,0,0,0.5);
+  box-shadow: var(--play-shadow);
 }
-.tbtn.main svg { width: 23px; height: 23px; fill: #17233c; opacity: 1; }
+.tbtn.main svg { width: 23px; height: 23px; fill: var(--on-gold); opacity: 1; }
 
 /* Both icons live in the play button and one is switched off. Measured in the
    real window, the hidden attribute did NOT take on these SVGs — both computed
@@ -378,7 +448,7 @@ body {
   stroke-dasharray: 0 1000; transform: rotate(135deg); transform-origin: 32px 32px;
   filter: drop-shadow(0 0 4px rgba(212, 168, 75, 0.6));
 }
-.k-cap { fill: #23334f; stroke: rgba(0,0,0,0.55); stroke-width: 1; }
+.k-cap { fill: var(--knob-cap); stroke: rgba(0,0,0,0.55); stroke-width: 1; }
 .k-ptr {
   stroke: var(--cream); stroke-width: 2.5; stroke-linecap: round;
   transform-origin: 32px 32px; transform: rotate(-135deg);
@@ -458,7 +528,7 @@ body {
 .tuner {
   flex: 0 0 158px; display: grid; align-content: center; gap: 1px;
   border-radius: 10px; padding: 8px 12px; text-align: center;
-  background: radial-gradient(120% 160% at 50% 0%, #16304a 0%, #061020 70%);
+  background: radial-gradient(120% 160% at 50% 0%, var(--glass-hi) 0%, var(--glass-low) 70%);
   border: 1px solid rgba(0, 0, 0, 0.6);
   box-shadow: inset 0 2px 12px rgba(0, 0, 0, 0.78);
 }
@@ -486,14 +556,14 @@ body {
   position: absolute; top: -2px; width: 3px; height: 9px; border-radius: 2px;
   background: var(--cream); left: 50%; transition: left 80ms linear;
 }
-.tbar i.good { background: #7ff0a8; box-shadow: 0 0 7px rgba(127, 240, 168, 0.9); }
+.tbar i.good { background: var(--ok); box-shadow: var(--ok-glow); }
 
 /* ---- recording ---------------------------------------------------------- */
 
 .recbtn { border-color: rgba(255, 140, 140, 0.32); }
-.recbtn svg { fill: #ff7a7a; }
+.recbtn svg { fill: var(--rec); }
 .recbtn.on {
-  background: linear-gradient(180deg, #e06060, #b13a3a);
+  background: linear-gradient(180deg, var(--rec-hi), var(--rec-low));
   border-color: rgba(255, 170, 170, 0.6);
 }
 .recbtn.on svg { fill: #fff; }
@@ -507,20 +577,20 @@ body {
    three matters most before the colour has to. */
 .overbtn {
   width: 46px; height: 46px;
-  background: linear-gradient(180deg, #f09669, #b56537);
+  background: linear-gradient(180deg, var(--over-hi), var(--over-low));
   border-color: rgba(255, 200, 155, 0.6);
   box-shadow: inset 0 1px 0 rgba(255,255,255,0.42),
               0 0 16px rgba(224, 128, 80, 0.38), 0 2px 8px rgba(0,0,0,0.5);
 }
-.overbtn svg { width: 21px; height: 21px; fill: #2b1508; opacity: 1; }
-.overbtn.on { background: linear-gradient(180deg, #e08050, #8f4620);
+.overbtn svg { width: 21px; height: 21px; fill: var(--over-ink); opacity: 1; }
+.overbtn.on { background: linear-gradient(180deg, var(--over-on-hi), var(--over-on-low));
               border-color: rgba(255, 190, 150, 0.75); }
 .overbtn.on svg { fill: #fff; }
 
-.micbtn.on { background: linear-gradient(180deg, #4fbf7a, #2c7a4c);
+.micbtn.on { background: linear-gradient(180deg, var(--mic-on-hi), var(--mic-on-low));
              border-color: rgba(150, 240, 190, 0.6); }
 .micbtn.on svg { fill: #fff; opacity: 1; }
-.lamp.rec.lit i { background: #ff6b6b; box-shadow: 0 0 9px rgba(255, 107, 107, 0.9); }
+.lamp.rec.lit i { background: var(--rec-lamp); box-shadow: var(--rec-glow); }
 
 /* THE LEVEL, AS A PIECE OF THE INSTRUMENT. It used to be a progress bar in a
    form. It is now the tuner's twin — same lit glass, same gold label, same
@@ -530,7 +600,7 @@ body {
 .level {
   flex: 0 0 132px; display: grid; align-content: center; gap: 3px;
   border-radius: 10px; padding: 8px 12px; text-align: center;
-  background: radial-gradient(120% 160% at 50% 0%, #16304a 0%, #061020 70%);
+  background: radial-gradient(120% 160% at 50% 0%, var(--glass-hi) 0%, var(--glass-low) 70%);
   border: 1px solid rgba(0, 0, 0, 0.6);
   box-shadow: inset 0 2px 12px rgba(0, 0, 0, 0.78);
 }
@@ -541,19 +611,19 @@ body {
 
 .meter {
   position: relative; flex: 1 1 auto; height: 10px; border-radius: 999px;
-  background: #050c18; border: 1px solid rgba(0, 0, 0, 0.6);
+  background: var(--well); border: 1px solid rgba(0, 0, 0, 0.6);
   box-shadow: inset 0 1px 5px rgba(0, 0, 0, 0.7); overflow: hidden;
 }
 .meter i {
   position: absolute; left: 0; top: 0; bottom: 0; width: 0;
-  background: linear-gradient(90deg, #4fbf7a 0%, #9ed36a 62%, #e0b85c 84%, #e06060 100%);
+  background: linear-gradient(90deg, var(--meter-1) 0%, var(--meter-2) 62%, var(--meter-3) 84%, var(--meter-4) 100%);
   transition: width 60ms linear;
 }
 .meter b {
   position: absolute; top: 0; bottom: 0; width: 2px; background: var(--cream);
   left: 0; opacity: 0.8;
 }
-.meter.clipped { border-color: #e06060; box-shadow: 0 0 0 1px #e06060; }
+.meter.clipped { border-color: var(--rec-hi); box-shadow: 0 0 0 1px var(--rec-hi); }
 
 .pick {
   display: inline-flex; align-items: center; gap: 7px;
@@ -567,12 +637,12 @@ body {
   font: inherit; font-size: 0.8rem; text-transform: none; letter-spacing: 0;
   padding: 0.3rem 0.6rem; border-radius: 7px; max-width: 16rem;
   border: 1px solid rgba(0, 0, 0, 0.5);
-  background: #050c18; color: var(--cream);
+  background: var(--well); color: var(--cream);
 }
 .tbox.short { width: 4.2rem; }
 
 .note { margin: 6px 0 0; font-size: 0.74rem; line-height: 1.45; color: var(--cream); opacity: 0.55; }
-.note.warn { color: #ffc98a; opacity: 0.95; }
+.note.warn { color: var(--warn); opacity: 0.95; }
 
 /* ---- the old switch strip (still used by the pan row) ------------------- */
 
@@ -637,7 +707,7 @@ body {
   font-family: Consolas, ui-monospace, monospace; font-size: 0.86rem;
   width: 5.4rem; padding: 0.3rem 0.6rem; border-radius: 7px;
   border: 1px solid rgba(0, 0, 0, 0.5);
-  background: #050c18; color: var(--lit);
+  background: var(--well); color: var(--lit);
   box-shadow: inset 0 1px 5px rgba(0, 0, 0, 0.7);
   text-align: center; letter-spacing: 0.04em;
 }
@@ -743,3 +813,34 @@ body {
   color: var(--cream); opacity: 0.82; max-width: 68ch;
 }
 .help b { opacity: 1; color: var(--white); font-weight: 600; }
+
+
+/* ---- the skin picker ---------------------------------------------------- */
+
+/* Swatches, not a list of names. Ten words would mean trying them one at a
+   time to find out what they are; a swatch painted in the skin's own case and
+   accent says it at a glance. */
+.skins { display: flex; flex-wrap: wrap; gap: 8px; }
+.skin {
+  border: 1px solid var(--panel-border); background: transparent;
+  border-radius: 10px; padding: 5px 5px 4px; cursor: pointer;
+  font: inherit; display: grid; gap: 3px; justify-items: center; width: 82px;
+}
+.skin:hover { border-color: var(--gold); }
+.skin[aria-pressed='true'] { border-color: var(--gold); background: rgba(212, 168, 75, 0.12); }
+.skin .chipart {
+  width: 100%; height: 30px; border-radius: 6px; position: relative; overflow: hidden;
+}
+.skin .chipart i {
+  position: absolute; left: 8px; bottom: 6px; width: 14px; height: 6px;
+  border-radius: 999px;
+}
+.skin .chipart b {
+  position: absolute; right: 8px; top: 7px; width: 10px; height: 10px;
+  border-radius: 999px;
+}
+.skin span {
+  font-size: 0.68rem; line-height: 1.15; color: var(--cream); opacity: 0.85;
+  text-align: center;
+}
+.skin[aria-pressed='true'] span { opacity: 1; color: var(--gold); font-weight: 600; }

@@ -62,10 +62,19 @@ that song.
 **The waveform.** On a stereo song the left channel is drawn on top and the
 right underneath, so you can see which side a part sits on.
 
-**Record.** Turn the microphone on, watch the level, and record — on its own or
-with the song playing. **Keep the last 2 minutes** saves what the microphone
-already heard, so you never have to have pressed record first. You can also
-record what the computer itself is playing. Takes are kept as WAV files.
+**Record.** Two buttons sit in the transport, beside play. The **red** one,
+**Record new**, records just your voice. The **orange** one, **Overdub**, starts
+the song and records you singing over it. Press the same button again to stop and
+keep the take. Nothing has to be set up first — the first press asks Windows for
+the microphone.
+
+**Mic** turns the microphone on early so you can check your level before you
+start, and **Keep last** saves the last two minutes the microphone already heard,
+so a good run is never lost for want of pressing record. While the microphone is
+on, **Your voice** appears in the display with a bar showing how loud you are.
+
+Takes are listed under **Takes**, kept as WAV files. You can also record what the
+computer itself is playing, from that same tab.
 
 **Notes.** Pin a note to a moment in a song and click it later to jump there.
 
@@ -75,6 +84,26 @@ record what the computer itself is playing. Takes are kept as WAV files.
 
 **Help.** There is a **Help** tab inside the app with all of this in it, so you
 never have to come back to this file.
+
+## How it looks
+
+Ten skins, under **Set-up**. Each changes the colours and the finish together —
+some are lit like hardware, some are flat like modern recording software:
+
+| | |
+|---|---|
+| **Studio navy** | The default — TVA navy and gold |
+| **AVF** | Your book's teal and amber |
+| **PASS** | The profile platform's deep teal and green |
+| **Vocal Fit** | Dark green with the bright green accent |
+| **Daylight** | Cream case, dark text — for a sunlit room |
+| **Studio grey** | Neutral grey; nothing competes with the song |
+| **High contrast** | Black and white, for reading it across the room |
+| **Vintage** | Warm brown and cream, matte, like the hardware player |
+| **Night** | Near-black with dim amber, for a dark room late on |
+| **Stage** | Deep violet and magenta |
+
+Your choice follows you to your other computer.
 
 ## Where things are kept
 

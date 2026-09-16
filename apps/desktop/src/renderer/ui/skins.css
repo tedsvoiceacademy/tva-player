@@ -1,0 +1,314 @@
+/* THE TEN SKINS.
+ *
+ * Ted asked for his four brand palettes, a light one for bright rooms, a plain
+ * grey one, a high-contrast one, and "any other options that could help round
+ * out the choices people may want" — and for the FINISH to change with the
+ * colour, not just the hue. So there are two axes and they are independent:
+ *
+ *   data-skin    which palette
+ *   data-finish  glossy | flat | matte
+ *
+ * A skin sets only what ui/app.css names in :root. Anything not in that list is
+ * a shape, and shapes do not change between skins — which is what keeps ten
+ * looks from becoming ten layouts to maintain.
+ *
+ * The three beyond his list each cover something the others do not rather than
+ * being another recolour: Vintage is warm and matte where everything else is
+ * cool and lit, Night is for a dark room, and Stage is the one bright hue the
+ * other nine leave out.
+ */
+
+/* ---- FINISH: how the case is lit -------------------------------------- */
+
+/* Flat: no glow anywhere, gradients collapsed to one colour. The case stops
+   pretending to be a lit object and becomes a printed panel. */
+html[data-finish='flat'] {
+  --grain: none;
+  --grain-blend: normal;
+  --case-shadow: 0 1px 0 var(--panel-border);
+  --glass-shadow: 0 0 0 1px var(--panel-border);
+  --panel-glass-shadow: 0 0 0 1px var(--panel-border);
+  --lit-glow: none;
+  --name-glow: none;
+  --btn-shadow: 0 0 0 1px var(--panel-border);
+  --play-shadow: 0 0 0 1px var(--panel-border);
+  --ok-glow: none;
+  --rec-glow: none;
+  --case-hi: var(--case-mid);
+  --case-low: var(--case-mid);
+  --glass-hi: var(--glass-low);
+}
+
+/* Matte: no glow and no grain, but the surfaces keep a little depth — the look
+   of modern recording software rather than of 1970s hardware. */
+html[data-finish='matte'] {
+  --grain: none;
+  --grain-blend: normal;
+  --case-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05), 0 10px 24px rgba(0, 0, 0, 0.45);
+  --glass-shadow: inset 0 1px 4px rgba(0, 0, 0, 0.5);
+  --panel-glass-shadow: inset 0 1px 4px rgba(0, 0, 0, 0.5);
+  --lit-glow: none;
+  --name-glow: none;
+  --btn-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.07), 0 1px 3px rgba(0, 0, 0, 0.5);
+  --play-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.1), 0 1px 3px rgba(0, 0, 0, 0.5);
+  --ok-glow: none;
+  --rec-glow: none;
+}
+
+/* ---- AVF: the book's teal and amber ----------------------------------- */
+html[data-skin='avf'] {
+  --navy-deep: #0d3a45;
+  --navy-mid: #1a6b7c;
+  --gold: #d4a039;
+  --gold-hover: #e6b755;
+  --cream: #f0e8d4;
+  --lit: #ffdf9e;
+  --ahead: #2f7d8f;
+  --case-hi: #22758a;
+  --case-mid: #17596a;
+  --case-low: #0d3a45;
+  --hero-mid: #17596a;
+  --glass-hi: #10505f;
+  --glass-low: #041b21;
+  --well: #04161b;
+  --knob-cap: #1d5867;
+  --gold-deep: #a87c22;
+  --on-gold: #16323a;
+  --wave-played: #d4a039;
+  --wave-ahead: #2f7d8f;
+  --wave-head: #f0e8d4;
+  --wave-flat: #10404c;
+  --wave-loop: 212, 160, 57;
+}
+
+/* ---- PASS: the profile platform's deep teal and green ------------------ */
+html[data-skin='pass'] {
+  --navy-deep: #0a3d4d;
+  --navy-mid: #0f4d5a;
+  --gold: #3db58c;
+  --gold-hover: #4cc99d;
+  --cream: #e8f4f6;
+  --lit: #9ff0d0;
+  --ahead: #2a6f7e;
+  --case-hi: #17667a;
+  --case-mid: #0f4d5a;
+  --case-low: #072e3a;
+  --hero-mid: #0f4d5a;
+  --glass-hi: #0d4655;
+  --glass-low: #03181f;
+  --well: #03141a;
+  --knob-cap: #164e5c;
+  --gold-deep: #2c8a6a;
+  --on-gold: #062a22;
+  --wave-played: #3db58c;
+  --wave-ahead: #2a6f7e;
+  --wave-head: #e8f4f6;
+  --wave-flat: #0b3946;
+  --wave-loop: 61, 181, 140;
+}
+
+/* ---- Vocal Fit: his newest palette ------------------------------------ */
+html[data-skin='vocalfit'] {
+  --navy-deep: #08302f;
+  --navy-mid: #0c3c3c;
+  --gold: #3ffc63;
+  --gold-hover: #7cff96;
+  --cream: #dfeae6;
+  --lit: #b6ffc6;
+  --ahead: #2c5f52;
+  --case-hi: #11504e;
+  --case-mid: #0c3c3c;
+  --case-low: #06201f;
+  --hero-mid: #0c3c3c;
+  --glass-hi: #0b3b3a;
+  --glass-low: #020f0f;
+  --well: #020d0d;
+  --knob-cap: #12423f;
+  --gold-deep: #26b544;
+  --on-gold: #042a12;
+  --wave-played: #3ffc63;
+  --wave-ahead: #2c5f52;
+  --wave-head: #dfeae6;
+  --wave-flat: #0a2e2c;
+  --wave-loop: 63, 252, 99;
+}
+
+/* ---- Daylight: for a sunlit room. Dark ink on a cream case ------------- */
+html[data-skin='daylight'] {
+  --navy-deep: #efe9da;
+  --navy-mid: #ded5c0;
+  --gold: #8a6416;
+  --gold-hover: #a3771d;
+  --cream: #24211a;
+  --white: #14120e;
+  --lit: #3a2f14;
+  --ahead: #b9ae95;
+  --case-hi: #faf6ec;
+  --case-mid: #efe9da;
+  --case-low: #e2dac6;
+  --hero-mid: #efe9da;
+  --glass-hi: #fffdf6;
+  --glass-low: #ece4d0;
+  --well: #e6ddc8;
+  --knob-cap: #ded5c0;
+  --gold-deep: #6d4e10;
+  --on-gold: #fdf8ec;
+  --panel-border: rgba(0, 0, 0, 0.14);
+  --over-ink: #3a1c06;
+  --rec: #b02f2f;
+  --rec-hi: #b02f2f;
+  --rec-low: #7c1d1d;
+  --rec-lamp: #b02f2f;
+  --rec-lamp-ink: #8f2020;
+  --ok: #1f7a46;
+  --warn: #8a5a10;
+  --wave-played: #8a6416;
+  --wave-ahead: #b9ae95;
+  --wave-head: #24211a;
+  --wave-flat: #cfc5ac;
+  --wave-loop: 138, 100, 22;
+}
+
+/* ---- Studio grey: what most recording software looks like -------------- */
+html[data-skin='grey'] {
+  --navy-deep: #1a1c1f;
+  --navy-mid: #2a2d31;
+  --gold: #63a8e8;
+  --gold-hover: #86bff0;
+  --cream: #dfe3e8;
+  --lit: #cfe4f7;
+  --ahead: #44494f;
+  --case-hi: #32363b;
+  --case-mid: #232528;
+  --case-low: #17191b;
+  --hero-mid: #232528;
+  --glass-hi: #2b2f34;
+  --glass-low: #101214;
+  --well: #0d0f10;
+  --knob-cap: #34383d;
+  --gold-deep: #3f7cb4;
+  --on-gold: #0b1620;
+  --wave-played: #63a8e8;
+  --wave-ahead: #44494f;
+  --wave-head: #eef2f6;
+  --wave-flat: #26292d;
+  --wave-loop: 99, 168, 232;
+}
+
+/* ---- High contrast: for reading the console across the room ------------ */
+html[data-skin='contrast'] {
+  --navy-deep: #000000;
+  --navy-mid: #101010;
+  --gold: #ffd400;
+  --gold-hover: #ffe64d;
+  --cream: #ffffff;
+  --lit: #ffffff;
+  --ahead: #6a6a6a;
+  --case-hi: #141414;
+  --case-mid: #000000;
+  --case-low: #000000;
+  --hero-mid: #0a0a0a;
+  --glass-hi: #101010;
+  --glass-low: #000000;
+  --well: #000000;
+  --knob-cap: #1c1c1c;
+  --gold-deep: #c9a600;
+  --on-gold: #000000;
+  --panel-border: rgba(255, 255, 255, 0.55);
+  --ok: #00ff85;
+  --rec: #ff4d4d;
+  --rec-hi: #ff2d2d;
+  --rec-low: #b00000;
+  --rec-lamp: #ff2d2d;
+  --rec-lamp-ink: #ff6b6b;
+  --wave-played: #ffd400;
+  --wave-ahead: #6a6a6a;
+  --wave-head: #ffffff;
+  --wave-flat: #2a2a2a;
+  --wave-loop: 255, 212, 0;
+}
+
+/* ---- Vintage: the hardware player, taken literally --------------------- */
+html[data-skin='vintage'] {
+  --navy-deep: #2b1d13;
+  --navy-mid: #43301f;
+  --gold: #b8791f;
+  --gold-hover: #d59a3c;
+  --cream: #f3e6cf;
+  --lit: #ffca6b;
+  --ahead: #6b5541;
+  --case-hi: #5b3f28;
+  --case-mid: #45301e;
+  --case-low: #2b1d13;
+  --hero-mid: #45301e;
+  --glass-hi: #3a2a1a;
+  --glass-low: #140d07;
+  --well: #120b06;
+  --knob-cap: #241811;
+  --gold-deep: #8d5a12;
+  --on-gold: #241505;
+  --wave-played: #d59a3c;
+  --wave-ahead: #6b5541;
+  --wave-head: #f3e6cf;
+  --wave-flat: #332416;
+  --wave-loop: 213, 154, 60;
+}
+
+/* ---- Night: a dark room, late on. Nothing on screen blinds you --------- */
+html[data-skin='night'] {
+  --navy-deep: #07090c;
+  --navy-mid: #10141a;
+  --gold: #b8842f;
+  --gold-hover: #cf9a3f;
+  --cream: #9aa3ad;
+  --white: #c9d1d9;
+  --lit: #d6a44a;
+  --ahead: #23303f;
+  --case-hi: #12161c;
+  --case-mid: #0b0e12;
+  --case-low: #05070a;
+  --hero-mid: #0b0e12;
+  --glass-hi: #0d1116;
+  --glass-low: #030405;
+  --well: #020304;
+  --knob-cap: #151a21;
+  --gold-deep: #8a6222;
+  --on-gold: #0a0c0f;
+  --ok: #4f9e6e;
+  --rec: #a94a4a;
+  --rec-hi: #9a3f3f;
+  --rec-low: #5f2020;
+  --rec-lamp: #a94a4a;
+  --rec-lamp-ink: #b96a6a;
+  --wave-played: #b8842f;
+  --wave-ahead: #23303f;
+  --wave-head: #9aa3ad;
+  --wave-flat: #11161c;
+  --wave-loop: 184, 132, 47;
+}
+
+/* ---- Stage: the one bright hue the other nine leave out ---------------- */
+html[data-skin='stage'] {
+  --navy-deep: #170d28;
+  --navy-mid: #2a1748;
+  --gold: #e0489b;
+  --gold-hover: #f06cb3;
+  --cream: #efe4f7;
+  --lit: #ffb3dd;
+  --ahead: #4c3170;
+  --case-hi: #2f1a52;
+  --case-mid: #1f1238;
+  --case-low: #120a20;
+  --hero-mid: #1f1238;
+  --glass-hi: #241443;
+  --glass-low: #0a0513;
+  --well: #090412;
+  --knob-cap: #2a1a49;
+  --gold-deep: #a82f71;
+  --on-gold: #2a0618;
+  --wave-played: #e0489b;
+  --wave-ahead: #4c3170;
+  --wave-head: #efe4f7;
+  --wave-flat: #1d1134;
+  --wave-loop: 224, 72, 155;
+}

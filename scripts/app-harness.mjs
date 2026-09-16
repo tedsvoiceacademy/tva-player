@@ -85,6 +85,19 @@ if (NEGATIVE) {
    looks entirely plausible, and the dials drop to a row of their own taking 88
    pixels of case with them — which last time put the tabs and every panel off
    the bottom of the screen. The bench check has to catch it. */
+/* A FOURTH CONTROL, for the skins. A skin that is listed in the picker and
+   never wired looks exactly like one that works until somebody clicks it, so
+   this stops one of the ten from applying at all. The two checks that count
+   distinct cases and distinct wave pictures have to notice. */
+const skinsPath = join(ROOT, 'apps/desktop/dist/renderer/ui/skins.css');
+const skinsOriginal = await readFile(skinsPath, 'utf8');
+if (NEGATIVE) {
+  const broken = skinsOriginal.replace("html[data-skin='daylight'] {",
+    "html[data-skin='daylight-not-wired'] {");
+  if (broken === skinsOriginal) { console.error('skin control did not apply'); process.exit(1); }
+  await writeFile(skinsPath, broken);
+}
+
 const cssPath = join(ROOT, 'apps/desktop/dist/renderer/ui/app.css');
 const cssOriginal = await readFile(cssPath, 'utf8');
 if (NEGATIVE) {
@@ -795,6 +808,118 @@ try {
     await page.click('.tab[data-tab="loop"]');
   }
 
+  console.log('\n--- the skins ---');
+  {
+    /* Ten skins, two axes. The checks below measure what is PAINTED, because a
+       skin that is declared and not wired looks exactly like one that works
+       until you click it. */
+    const ids = await page.evaluate(() => window.__tvaSkins());
+    check('every skin Ted asked for is offered', ids.length === 10, ids.join(', '));
+
+    /* A picture of the wave under each, so the canvas — which is painted rather
+       than styled, and is therefore the one thing a skin cannot reach on its
+       own — is proved to follow along. */
+    const looks = [];
+    for (const id of ids) {
+      looks.push(await page.evaluate(async (skin) => {
+        window.__tvaSetSkin(skin);
+        await new Promise((r) => setTimeout(r, 120));
+        const css = (sel, prop) => getComputedStyle(document.querySelector(sel))[prop];
+        const c = document.getElementById('wave');
+        const g = c.getContext('2d');
+        const px = g.getImageData(0, 0, c.width, c.height).data;
+        let ink = 0;
+        for (let i = 0; i < px.length; i += 4) {
+          if (px[i + 3] > 0) ink = (ink * 31 + px[i] * 65536 + px[i + 1] * 256 + px[i + 2]) % 2147483647;
+        }
+        /* The lit panels and the case are painted with GRADIENTS, so their
+           computed backgroundColor is transparent and measuring text against
+           it measures text against black. The backdrop each one actually sits
+           on is the token that draws it, so that is what is read. */
+        const token = (name) => getComputedStyle(document.documentElement)
+          .getPropertyValue(name).trim();
+        return {
+          skin,
+          rackImage: css('.rack', 'backgroundImage').slice(0, 40),
+          readoutBg: token('--glass-low'),
+          caseSurface: token('--case-mid'),
+          clock: css('.r-clock', 'color'),
+          cream: css('.swx b', 'color'),
+          caseBg: css('.rack', 'backgroundImage'),
+          rackShadow: css('.rack', 'boxShadow').slice(0, 70),
+          playShadow: css('.tbtn.main', 'boxShadow').slice(0, 70),
+          waveInk: ink,
+        };
+      }, id));
+    }
+
+    /* The PALETTE, not the painted background — the two differ, and comparing
+       the painted one let a skin whose colours never applied still look
+       distinct because its finish did. */
+    const cases = new Set(looks.map((x) => `${x.caseSurface}|${x.readoutBg}`));
+    check('each skin really repaints the case', cases.size === ids.length,
+      `${cases.size} different cases across ${ids.length} skins`);
+
+    const waves = new Set(looks.map((x) => x.waveInk));
+    check('and the waveform follows the skin, not just the panels',
+      waves.size === ids.length,
+      `${waves.size} different wave pictures across ${ids.length} skins`);
+
+    /* READABLE, not merely pretty. This is the one judgement my eye cannot be
+       trusted with, so it is arithmetic: WCAG relative luminance, 4.5:1. */
+    const channels = (colour) => {
+      const hex = colour.trim().replace('#', '');
+      if (/^[0-9a-f]{6}$/i.test(hex)) {
+        return [0, 2, 4].map((i) => parseInt(hex.slice(i, i + 2), 16));
+      }
+      return colour.match(/[\d.]+/g).slice(0, 3).map(Number);
+    };
+    const ratio = (a, b) => {
+      const lum = (colour) => {
+        const [r, g, bl] = channels(colour)
+          .map((v) => { const c = v / 255; return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4; });
+        return 0.2126 * r + 0.7152 * g + 0.0722 * bl;
+      };
+      const [x, y] = [lum(a), lum(b)].sort((m, n) => n - m);
+      return (x + 0.05) / (y + 0.05);
+    };
+    const unreadable = looks
+      .map((x) => ({ skin: x.skin, clock: ratio(x.clock, x.readoutBg), body: ratio(x.cream, x.caseSurface) }))
+      .filter((x) => x.clock < 4.5 || x.body < 4.5);
+    check('every skin is readable — 4.5:1 or better, measured not judged',
+      unreadable.length === 0,
+      unreadable.map((x) => `${x.skin} ${x.clock.toFixed(1)}/${x.body.toFixed(1)}`).join(', ')
+        || `worst ${Math.min(...looks.map((x) => Math.min(
+          ratio(x.clock, x.readoutBg), ratio(x.cream, x.caseSurface)))).toFixed(1)}:1`);
+
+    /* FINISH IS ITS OWN AXIS, or "colour and finish" quietly became "colour". */
+    const glossy = looks.find((x) => x.skin === 'navy');
+    const matte = looks.find((x) => x.skin === 'grey');
+    const flat = looks.find((x) => x.skin === 'contrast');
+    const finishOf = (x) => `${x.rackShadow}|${x.playShadow}|${x.rackImage.startsWith('url')}`;
+    check('a matte skin is lit differently, not just coloured differently',
+      finishOf(matte) !== finishOf(glossy) && !matte.rackImage.startsWith('url'),
+      `glossy grain ${glossy.rackImage.startsWith('url')}, matte grain ${matte.rackImage.startsWith('url')}`);
+    check('and a flat one differs from both',
+      finishOf(flat) !== finishOf(glossy) && finishOf(flat) !== finishOf(matte),
+      `flat "${flat.rackShadow.slice(0, 34)}" vs matte "${matte.rackShadow.slice(0, 34)}"`);
+
+    /* IT IS REMEMBERED. Clicking a swatch has to write the choice, or it is
+       gone the next time the app opens. */
+    await page.click('.tab[data-tab="setup"]');
+    await page.waitForSelector('.skin[data-skin="vintage"]', { timeout: 5000 });
+    await page.click('.skin[data-skin="vintage"]');
+    await page.waitForTimeout(600);
+    const savedSkin = JSON.parse(
+      await readFile(join(userDataDir, 'Player Settings', 'settings.json'), 'utf8')).skin;
+    check('choosing one from the swatches writes it down', savedSkin === 'vintage', savedSkin);
+    check('and the swatch shows which one is on',
+      (await page.getAttribute('.skin[data-skin="vintage"]', 'aria-pressed')) === 'true');
+
+    await page.evaluate(() => window.__tvaSetSkin('navy'));
+    await page.click('.tab[data-tab="loop"]');
+  }
+
   console.log('\n--- notes pinned to a moment ---');
   {
     await page.click('.tab[data-tab="notes"]');
@@ -1064,6 +1189,7 @@ try {
     await writeFile(graphPath, original);
     await writeFile(uiPath, uiOriginal);
     await writeFile(cssPath, cssOriginal);
+    await writeFile(skinsPath, skinsOriginal);
   }
   await rm(work, { recursive: true, force: true });
 }

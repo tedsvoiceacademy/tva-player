@@ -457,6 +457,27 @@ async function computePeaks(url) {
   }
 }
 
+/* THE WAVE IS PAINTED, NOT STYLED, so it is the one thing a skin cannot reach
+   on its own — and with ten skins it is the likeliest place for a hard-coded
+   navy-and-gold to survive unnoticed. Its colours come out of the same tokens
+   as everything else, cached because reading computed style twenty times a
+   second is real work for no gain. Changing skin clears the cache. */
+let waveInk = null;
+
+function waveColours() {
+  if (waveInk) return waveInk;
+  const css = getComputedStyle(document.documentElement);
+  const v = (name, fallback) => (css.getPropertyValue(name).trim() || fallback);
+  waveInk = {
+    played: v('--wave-played', '#d4a84b'),
+    ahead: v('--wave-ahead', '#33507f'),
+    head: v('--wave-head', '#f5f0e1'),
+    flat: v('--wave-flat', '#16294a'),
+    loop: v('--wave-loop', '212, 168, 75'),
+  };
+  return waveInk;
+}
+
 function drawWave() {
   const canvas = $('wave');
   const dpr = window.devicePixelRatio || 1;
@@ -469,6 +490,7 @@ function drawWave() {
 
   const played = duration > 0 ? player.currentTime / duration : 0;
   const mid = h / 2;
+  const ink = waveColours();
 
   // The marked part, behind everything.
   const region = dragRegion
@@ -476,9 +498,9 @@ function drawWave() {
       ? { a: settings.loopA, b: settings.loopB } : null);
   if (region && duration > 0) {
     const x1 = (region.a / duration) * w, x2 = (region.b / duration) * w;
-    g.fillStyle = dragRegion ? 'rgba(212,168,75,0.30)' : 'rgba(212,168,75,0.18)';
+    g.fillStyle = `rgba(${ink.loop}, ${dragRegion ? 0.3 : 0.18})`;
     g.fillRect(x1, 0, Math.max(1, x2 - x1), h);
-    g.fillStyle = 'rgba(212,168,75,0.8)';
+    g.fillStyle = `rgba(${ink.loop}, 0.8)`;
     g.fillRect(x1, 0, 1, h); g.fillRect(x2 - 1, 0, 1, h);
   }
 
@@ -492,28 +514,30 @@ function drawWave() {
     for (const lane of lanes) {
       for (let i = 0; i < lane.data.length; i++) {
         const tall = Math.max(1.5, lane.data[i] * lane.room * 2);
-        g.fillStyle = (i / lane.data.length) <= played ? '#d4a84b' : '#33507f';
+        g.fillStyle = (i / lane.data.length) <= played ? ink.played : ink.ahead;
         g.fillRect(i * bw, lane.mid - tall / 2, Math.max(1, bw - 0.6), tall);
       }
     }
 
     // The line between the two sides, and a word saying which is which.
     if (peaks.right) {
-      g.fillStyle = 'rgba(255,255,255,0.10)';
+      g.fillStyle = 'rgba(128,128,128,0.35)';
       g.fillRect(0, mid, w, 1);
     }
     /* The lettering sits just INSIDE the top of its own lane. Placed above it,
        the baseline of the upper one landed off the top of the canvas and the
        letter never appeared at all. */
     g.font = '600 9px Consolas, ui-monospace, monospace';
-    g.fillStyle = 'rgba(245,240,225,0.5)';
+    g.globalAlpha = 0.5;
+    g.fillStyle = ink.head;
     for (const lane of lanes) g.fillText(lane.tag, 4, Math.max(9, lane.mid - lane.room + 8));
+    g.globalAlpha = 1;
   } else {
-    g.fillStyle = '#16294a';
+    g.fillStyle = ink.flat;
     g.fillRect(0, mid - 1, w, 2);
   }
 
-  g.fillStyle = '#f5f0e1';
+  g.fillStyle = ink.head;
   g.fillRect(Math.min(played * w, w - 2), 0, 2, h);
 }
 
@@ -813,6 +837,10 @@ window.tva.onReady(async (info) => {
       + `${info.shortcutsTaken.join(', ')}.`);
   }
   window.tva.loadSettings().then((s) => {
+    /* Before anything is shown. The window is created hidden and revealed on
+       ready-to-show, so applying it here means no flash of the wrong one. */
+    const skin = applySkin(s?.skin ?? 'navy');
+    paintSkins(skin.id);
     if (Number.isFinite(s?.latencyMs)) $('latency').value = String(s.latencyMs);
     if (s?.oneSpeaker) {
       $('onespk').checked = true;
@@ -880,6 +908,8 @@ window.__tvaSpeed = () => settings.speed;
    and 2 for a stereo one. A check that waits on pixels alone cannot tell a
    wave that has not arrived yet from a flat line, and passed on the flat one. */
 window.__tvaWaveLanes = () => (peaks ? (peaks.right ? 2 : 1) : 0);
+window.__tvaSkins = () => SKINS.map((s) => s.id);
+window.__tvaSetSkin = (id) => applySkin(id).id;
 
 wireKnobs();
 wireWave();
@@ -1390,6 +1420,83 @@ $('click-on').addEventListener('click', async () => {
   file = { ...file, bpm, countInBars };
   saveSoon();
 });
+
+/* ========================================================================
+   SKINS
+
+   Ted asked for his brand palettes, a light one, a plain one, a high-contrast
+   one, "any other options that could help round out the choices people may
+   want" — and for the finish to change with the colour, not just the hue.
+
+   A skin is two attributes on <html> and nothing else: data-skin picks the
+   palette, data-finish picks how the case is lit. Everything downstream is a
+   token, so there is no per-skin code and no per-skin layout. The one thing
+   that does not follow automatically is the waveform, which is painted rather
+   than styled — so its colour cache is dropped here, and nowhere else.
+   ======================================================================== */
+
+const SKINS = [
+  { id: 'navy', name: 'Studio navy', finish: 'glossy', case: '#132445', accent: '#d4a84b' },
+  { id: 'avf', name: 'AVF', finish: 'glossy', case: '#17596a', accent: '#d4a039' },
+  { id: 'pass', name: 'PASS', finish: 'glossy', case: '#0f4d5a', accent: '#3db58c' },
+  { id: 'vocalfit', name: 'Vocal Fit', finish: 'glossy', case: '#0c3c3c', accent: '#3ffc63' },
+  { id: 'daylight', name: 'Daylight', finish: 'flat', case: '#efe9da', accent: '#8a6416' },
+  { id: 'grey', name: 'Studio grey', finish: 'matte', case: '#232528', accent: '#63a8e8' },
+  { id: 'contrast', name: 'High contrast', finish: 'flat', case: '#000000', accent: '#ffd400' },
+  { id: 'vintage', name: 'Vintage', finish: 'matte', case: '#45301e', accent: '#d59a3c' },
+  { id: 'night', name: 'Night', finish: 'matte', case: '#0b0e12', accent: '#b8842f' },
+  { id: 'stage', name: 'Stage', finish: 'glossy', case: '#1f1238', accent: '#e0489b' },
+];
+
+function applySkin(id) {
+  const skin = SKINS.find((x) => x.id === id) ?? SKINS[0];
+  const root = document.documentElement;
+  /* The default palette lives in :root, so it is the ABSENCE of data-skin
+     rather than a block of its own — one place for the defaults instead of
+     two that can disagree. */
+  if (skin.id === 'navy') root.removeAttribute('data-skin');
+  else root.dataset.skin = skin.id;
+  if (skin.finish === 'glossy') root.removeAttribute('data-finish');
+  else root.dataset.finish = skin.finish;
+
+  waveInk = null;               // the canvas is painted, not styled
+  drawWave();
+  for (const btn of document.querySelectorAll('.skin')) {
+    btn.setAttribute('aria-pressed', String(btn.dataset.skin === skin.id));
+  }
+  return skin;
+}
+
+function paintSkins(current) {
+  const host = $('skins');
+  if (!host || host.children.length) return;
+  for (const skin of SKINS) {
+    const btn = document.createElement('button');
+    btn.type = 'button'; btn.className = 'skin'; btn.dataset.skin = skin.id;
+    btn.setAttribute('aria-pressed', String(skin.id === current));
+    btn.title = `${skin.name} — ${skin.finish}`;
+
+    const art = document.createElement('span');
+    art.className = 'chipart';
+    art.style.background = skin.case;
+    const bar = document.createElement('i');
+    bar.style.background = skin.accent;
+    const dot = document.createElement('b');
+    dot.style.background = skin.accent;
+    art.append(bar, dot);
+
+    const name = document.createElement('span');
+    name.textContent = skin.name;
+    btn.append(art, name);
+    btn.addEventListener('click', async () => {
+      const chosen = applySkin(skin.id);
+      say(`${chosen.name}.`);
+      const settings = await window.tva.loadSettings();
+      await window.tva.saveSettings({ ...settings, skin: chosen.id });
+    });
+    host.append(btn);
+  }
+}
 
 /* ========================================================================
    SET-UP

@@ -61,18 +61,26 @@ await page.evaluate(() => { document.querySelector('.deskwrap').scrollTop = 0; }
 await page.waitForTimeout(2500);
 await page.screenshot({ path: out });
 
-/* The record tab too, with the microphone on and a take in the list, so the
-   half of the app that is not the player can be seen without installing it. */
-await page.click('.tab[data-tab="record"]');
+/* Recording, ON THE PLAYER — which is the whole point of the redesign, so the
+   picture has to show the console with the microphone live and a take running,
+   not a panel underneath it. */
 await page.click('#mic-open');
-await page.waitForFunction(() => !document.getElementById('rec-start').disabled, { timeout: 20000 });
-await page.click('#rec-start');
+await page.waitForFunction(
+  () => !document.getElementById('level').hasAttribute('hidden'), { timeout: 20000 });
+await page.click('#rec-over');
+await page.waitForFunction(
+  () => document.getElementById('lamp-rec').classList.contains('lit'), { timeout: 20000 });
 await page.waitForTimeout(2200);
-await page.click('#rec-stop');
-await page.waitForTimeout(1200);
 const recOut = out.replace(/\.png$/, '-record.png');
 await page.screenshot({ path: recOut });
 
+await page.click('#rec-over');
+await page.waitForTimeout(1200);
+await page.click('.tab[data-tab="takes"]');
+await page.waitForTimeout(600);
+const takesOut = out.replace(/\.png$/, '-takes.png');
+await page.screenshot({ path: takesOut });
+
 await app.close();
 await rm(work, { recursive: true, force: true });
-console.log(`wrote ${out} and ${recOut}`);
+console.log(`wrote ${out}, ${recOut} and ${takesOut}`);

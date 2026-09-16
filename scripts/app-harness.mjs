@@ -80,6 +80,24 @@ if (NEGATIVE) {
   await writeFile(uiPath, broken);
 }
 
+/* A THIRD CONTROL, for the layout. Widening the word under a record button is
+   the regression this redesign sits one edit away from: nothing throws, the app
+   looks entirely plausible, and the dials drop to a row of their own taking 88
+   pixels of case with them — which last time put the tabs and every panel off
+   the bottom of the screen. The bench check has to catch it. */
+const cssPath = join(ROOT, 'apps/desktop/dist/renderer/ui/app.css');
+const cssOriginal = await readFile(cssPath, 'utf8');
+if (NEGATIVE) {
+  /* Dropping the line breaks out of the words is the realistic version of this
+     mistake — "Record new" on one line is 75px instead of 50, and three of
+     those is more than the row has to give. A wider max-width alone does
+     nothing, because a <br> breaks whatever the CSS says. */
+  const broken = cssOriginal.replace('.t-name { max-width: 4.4rem;',
+    '.t-name br { display: none } .t-name { max-width: 14rem;');
+  if (broken === cssOriginal) { console.error('layout control did not apply'); process.exit(1); }
+  await writeFile(cssPath, broken);
+}
+
 /* Its own data directory, for two reasons that both bite on CI.
  *
  * The app holds a single-instance lock so that double-clicking a second song
@@ -505,7 +523,7 @@ try {
 
   console.log('\n--- the tabs ---');
   {
-    for (const [tab, panel] of [['record', 'record'], ['notes', 'notes'], ['click', 'click'],
+    for (const [tab, panel] of [['takes', 'takes'], ['notes', 'notes'], ['click', 'click'],
       ['setup', 'setup'], ['help', 'help'], ['loop', 'loop']]) {
       await page.click(`.tab[data-tab="${tab}"]`);
       const shown = await page.evaluate(() =>
@@ -651,43 +669,130 @@ try {
     check('and never calls it "the part you are repeating"',
       !loopPanel.toLowerCase().includes('the part you are repeating'), loopPanel.slice(0, 60));
 
-    /* THE RECORDER HE COULD NOT REACH. "I don't understand how to use the
-       recorder. And it is not on the screen. I have to scroll down." So the
-       three steps have to be numbered AND the first of them has to be visible
-       without scrolling, at the window size he runs. */
+    /* THE RECORDER IS PART OF THE INSTRUMENT NOW. The numbered steps this used
+       to measure are gone: Ted's second look said the form under the player was
+       "Ugly, and hard to figure out quickly... Ideally, it would simply be an
+       added layer to the playback interface... buttons like the transport
+       buttons." So what is measured is that they really ARE transport buttons —
+       same row, same centre line, same chrome — rather than a panel restyled to
+       look like one. */
     await page.setViewportSize({ width: 1180, height: 760 });
-    await page.click('.tab[data-tab="record"]');
-    const rec = await page.evaluate(() => ({
-      steps: [...document.querySelectorAll('[data-panel="record"] .steps > li')].map((li) => ({
-        num: li.querySelector('.num')?.textContent.trim(),
-        top: Math.round(li.getBoundingClientRect().top),
-        bottom: Math.round(li.getBoundingClientRect().bottom),
-      })),
-      /* The window can only be as big as the screen it is on. Asking for
-         1180x760 on a 1024x768 display gets you 1024x733, and a check that
-         measured against 760 anyway would be measuring a window that does not
-         exist. */
-      w: window.innerWidth,
-      h: window.innerHeight,
-      canScroll: document.querySelector('.deskwrap').scrollHeight
-        > document.querySelector('.deskwrap').clientHeight + 1,
-    }));
-    check('recording is laid out as numbered steps',
-      rec.steps.length === 3 && rec.steps.map((x) => x.num).join('') === '123',
-      rec.steps.map((x) => x.num).join(','));
+    await page.click('.tab[data-tab="loop"]');
+    const seat = await page.evaluate(() => {
+      const r = (sel) => document.querySelector(sel).getBoundingClientRect();
+      const t = r('.transport'), p = r('#play'), v = r('#rec-new'), b = r('#rec-over');
+      const mid = (x) => x.top + x.height / 2;
+      const round = (sel) => {
+        const c = getComputedStyle(document.querySelector(sel));
+        return parseFloat(c.borderTopLeftRadius) >= parseFloat(c.width) / 2 - 1;
+      };
+      return {
+        inside: v.left >= t.left - 1 && b.right <= t.right + 1,
+        offPlay: Math.max(Math.abs(mid(v) - mid(p)), Math.abs(mid(b) - mid(p))),
+        red: Math.round(v.width), orange: Math.round(b.width), gold: Math.round(p.width),
+        allRound: round('#back10') && round('#rec-new') && round('#rec-over'),
+        words: [...document.querySelectorAll('.transport .t-name')]
+          .map((e) => e.textContent.replace(/\s+/g, ' ').trim()),
+      };
+    });
+    check('both record buttons sit inside the transport row', seat.inside);
+    check('and on the same centre line as play, though they carry a word',
+      seat.offPlay <= 1, `${seat.offPlay.toFixed(1)}px off`);
+    check('they are round, like the rest of the transport — not pills or chips',
+      seat.allRound);
+    check('the orange one is bigger than the red and smaller than the gold play button',
+      seat.red === 40 && seat.orange > seat.red && seat.orange < seat.gold,
+      `${seat.red} / ${seat.orange} / ${seat.gold}`);
+    check('each carries the word Ted chose',
+      seat.words.some((w) => /record\s*new/i.test(w)) && seat.words.includes('Overdub'),
+      seat.words.join(', '));
 
-    const where = rec.steps.map((x) => `${x.num}:${x.bottom}`).join(' ');
-    if (rec.h >= 750) {
-      check(`all three steps are on screen without scrolling at ${rec.w}x${rec.h}`,
-        rec.steps.every((x) => x.bottom <= rec.h && x.top >= 0), `${where} of ${rec.h}`);
-    } else {
-      /* Said out loud rather than skipped quietly. On a screen too small for
-         the window Ted runs, the promise that has to hold is that the recorder
-         STARTS on screen and the rest is one scroll away — not that it all
-         fits, which it cannot. */
-      check(`the screen is only ${rec.w}x${rec.h}, so step one is on screen and the rest scroll`,
-        rec.steps[0].bottom <= rec.h && rec.canScroll, `${where} of ${rec.h}`);
-    }
+    /* The words are set in the dials' own class, so SPEED and RECORD NEW cannot
+       drift apart into two different-looking labels. */
+    const gold = await page.evaluate(() => {
+      const c = (sel) => getComputedStyle(document.querySelector(sel));
+      const a = c('.transport .t-name'), b = c('.knob[data-knob="speed"] .k-name');
+      return {
+        same: a.color === b.color && a.fontSize === b.fontSize
+          && a.letterSpacing === b.letterSpacing && a.textTransform === b.textTransform,
+        how: `${a.color} at ${a.fontSize}`,
+      };
+    });
+    check('and is set exactly like SPEED and PITCH under the dials', gold.same, gold.how);
+
+    /* THE BUDGET THE WHOLE LAYOUT RESTS ON. Four more buttons went into a row
+       that had 836px to share with the dials, and a row that wraps costs 88px
+       of case — which last time put the tabs and every panel off the bottom of
+       the screen. Measured in the widest state there is: microphone live, so
+       the extra tool is showing. */
+    await page.evaluate(() => { window.__tvaRackIdle = Math.round(
+      document.querySelector('.rack').getBoundingClientRect().height); });
+    await page.click('#mic-open');
+    await page.waitForFunction(
+      () => !document.getElementById('level').hasAttribute('hidden'), { timeout: 20000 });
+    const bench = await page.evaluate(() => {
+      const t = document.querySelector('.transport').getBoundingClientRect();
+      const k = document.querySelector('.bank').getBoundingClientRect();
+      const b = document.querySelector('.bench').getBoundingClientRect();
+      const tallest = Math.max(...[...document.querySelector('.bench').children]
+        .map((e) => e.getBoundingClientRect().height));
+      return {
+        oneRow: Math.round(b.height) <= Math.round(tallest) + 2,
+        clear: Math.round(k.left - t.right),
+        transport: Math.round(t.width), bank: Math.round(k.width),
+        keepShowing: !document.getElementById('cell-last').hasAttribute('hidden'),
+        rack: Math.round(document.querySelector('.rack').getBoundingClientRect().height),
+        idle: window.__tvaRackIdle,
+        deskH: Math.round(document.querySelector('.deskwrap').clientHeight),
+        sideways: document.documentElement.scrollWidth > window.innerWidth + 1,
+      };
+    });
+    check('the bench is still one row with every record tool showing',
+      bench.oneRow && bench.keepShowing,
+      `transport ${bench.transport}px, dials ${bench.bank}px`);
+    check('and the transport clears the dials',
+      bench.clear >= 8, `${bench.clear}px between them`);
+    check('turning the microphone on does not make the case taller',
+      bench.rack === bench.idle, `${bench.idle}px idle, ${bench.rack}px live`);
+    check('and nothing is pushed off the side', !bench.sideways);
+    check('there is still room to work under the case',
+      bench.deskH >= 90, `${bench.deskH}px of bench`);
+
+    /* THE LEVEL IS ON THE INSTRUMENT. Ted asked for it "in the lit display with
+       a clear, simple label", which means inside the case — not in a panel
+       below it wearing a different set of clothes. */
+    const meterHome = await page.evaluate(() => {
+      const m = document.getElementById('meter-fill');
+      const level = document.getElementById('level').getBoundingClientRect();
+      const tabs = document.querySelector('.tabs').getBoundingClientRect();
+      return {
+        inCase: Boolean(m.closest('.rack')),
+        parentIsMeter: m.parentElement.classList.contains('meter'),
+        aboveTabs: level.bottom <= tabs.top,
+        labelled: document.querySelector('#level .tlab').textContent.trim(),
+      };
+    });
+    check('the level bar is part of the case, above the tabs',
+      meterHome.inCase && meterHome.aboveTabs);
+    check('it carries a plain label', meterHome.labelled.length > 3, meterHome.labelled);
+    check("and the recorder's clipping still lands on the bar itself",
+      meterHome.parentIsMeter, 'onLevel toggles .clipped on this element\u2019s parent');
+
+    /* THE TAKES TAB IS A LIST, NOT A PROCEDURE. */
+    await page.click('.tab[data-tab="takes"]');
+    const takesTab = await page.evaluate(() => ({
+      steps: document.querySelectorAll('[data-panel="takes"] .steps, [data-panel="takes"] .num').length,
+      selects: document.querySelectorAll('[data-panel="takes"] select').length,
+      micInSetup: Boolean(document.getElementById('mic-pick').closest('[data-panel="setup"]')),
+      hasFolder: Boolean(document.querySelector('[data-panel="takes"] #rec-folder')),
+      hasLatency: Boolean(document.querySelector('[data-panel="takes"] #latency')),
+    }));
+    check('the Takes tab has no numbered steps left in it', takesTab.steps === 0);
+    check('and no microphone chooser — it is picked once, under Set-up',
+      takesTab.selects === 0 && takesTab.micInSetup);
+    check('it holds the folder button and the fine settings',
+      takesTab.hasFolder && takesTab.hasLatency);
+    await page.click('.tab[data-tab="loop"]');
   }
 
   console.log('\n--- notes pinned to a moment ---');
@@ -705,18 +810,24 @@ try {
     check('and a note can be removed', (await page.$$('#notes .item')).length === 0);
   }
 
-  console.log('\n--- recording ---');
+  console.log('\n--- recording, from the player itself ---');
   {
-    await page.click('.tab[data-tab="record"]');
+    /* THE POINT OF THE REDESIGN. Ted pressed record and was sent to a form in
+       another tab: "Ugly, and hard to figure out quickly." So this stays on the
+       LOOP tab throughout and never opens the recorder's own page — because
+       after this change there is no recorder page to open. */
+    await page.click('.tab[data-tab="loop"]');
+    await page.click('#rec-new');
     await page.waitForFunction(
-      () => document.getElementById('mic-pick').options.length > 0, { timeout: 10000 });
-    check('a microphone is offered', true,
-      await page.evaluate(() => document.getElementById('mic-pick').options[0].textContent));
+      () => document.getElementById('lamp-rec').classList.contains('lit'), { timeout: 20000 });
+    check('pressing Record new opens the microphone and starts, with nothing to set up first',
+      true, 'the old step one is gone');
 
-    await page.click('#mic-open');
-    await page.waitForFunction(
-      () => !document.getElementById('rec-start').disabled, { timeout: 15000 });
-    check('turning the microphone on makes recording possible', true);
+    check('the button now offers to stop and keep the take',
+      (await page.textContent('#name-new')).replace(/\s+/g, ' ').includes('Stop'),
+      await page.textContent('#name-new'));
+    check('and the other record button cannot start a second take',
+      await page.evaluate(() => document.getElementById('rec-over').disabled));
 
     // The meter has to move, or a person cannot set their level.
     await page.waitForFunction(() => {
@@ -725,9 +836,15 @@ try {
     }, { timeout: 10000 });
     check('and the level meter moves with the sound coming in', true);
 
-    await page.click('#rec-start');
     await page.waitForTimeout(1800);
-    await page.click('#rec-stop');
+    await page.click('#rec-new');
+    await page.waitForFunction(
+      () => !document.getElementById('lamp-rec').classList.contains('lit'), { timeout: 10000 });
+
+    /* The list lives in a panel that is hidden until its tab is opened, and
+       waitForSelector waits for VISIBLE — so without this click it would wait
+       for ever against a list that is perfectly correct. */
+    await page.click('.tab[data-tab="takes"]');
     await page.waitForSelector('#takes .item', { timeout: 10000 });
     check('a take is recorded and listed', (await page.$$('#takes .item')).length >= 1);
 
@@ -763,6 +880,32 @@ try {
       `peak ${takeInfo?.peak?.toFixed(3)}, pitch ${takeInfo?.hz?.toFixed(1)} Hz against 440`);
     check('and it is named after the song it was sung against',
       takeInfo && takeInfo.name.startsWith('Test Song'), takeInfo?.name);
+
+    /* THE TWO BUTTONS HAVE TO DIFFER, or splitting them bought nothing. The
+       tick box that used to say "play the song too" is gone; this is what
+       replaced it, so this is what has to be measured. */
+    await page.click('.tab[data-tab="loop"]');
+    const apart = await page.evaluate(async () => {
+      const clock = () => document.getElementById('t-now').textContent;
+      const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+      const run = async (id) => {
+        document.getElementById('stop').click(); await wait(400);
+        const before = clock();
+        document.getElementById(id).click(); await wait(1500);
+        const during = clock();
+        document.getElementById(id).click(); await wait(800);
+        return { before, during };
+      };
+      const red = await run('rec-new');
+      const orange = await run('rec-over');
+      return { red, orange };
+    });
+    check('Record new records the voice and leaves the song where it was',
+      apart.red.during === apart.red.before,
+      `clock went ${apart.red.before} -> ${apart.red.during}`);
+    check('Overdub starts the song as well',
+      apart.orange.during !== apart.orange.before,
+      `clock went ${apart.orange.before} -> ${apart.orange.during}`);
   }
 
   console.log('\n--- one file of the take and the song together ---');
@@ -920,6 +1063,7 @@ try {
   if (NEGATIVE) {
     await writeFile(graphPath, original);
     await writeFile(uiPath, uiOriginal);
+    await writeFile(cssPath, cssOriginal);
   }
   await rm(work, { recursive: true, force: true });
 }

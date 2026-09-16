@@ -72,6 +72,14 @@
           <div class="r-sub" id="msg" role="status" aria-live="polite">Open a song to start.</div>
         </div>
 
+        <!-- The level bar is a piece of the instrument, in the same lit glass as
+             the tuner, and it appears for the same reason: the microphone is on. -->
+        <div class="level" id="level" hidden>
+          <span class="tlab">Your voice</span>
+          <div class="meter" aria-hidden="true"><i id="meter-fill"></i><b id="meter-peak"></b></div>
+          <span class="levelstate" id="meter-text">Off</span>
+        </div>
+
         <div class="tuner" id="tuner" hidden>
           <span class="tlab">You are singing</span>
           <span class="tnote" id="t-note">—</span>
@@ -85,27 +93,71 @@
         <div class="ruler" id="ruler" aria-hidden="true"></div>
       </div>
 
+      <p class="wavehint">Click the wave to jump · drag across it to mark a loop · double-click any dial to put it back to normal</p>
+
+      <!-- RECORDING IS PART OF THE INSTRUMENT, NOT A FORM UNDER IT.
+           Ted: "Ideally, it would simply be an added layer to the playback
+           interface... buttons like the transport buttons in the player part of
+           the app." So the record tools are transport buttons, in the same
+           chrome, in the same row, and the only thing that separates them from
+           playback is a hairline and a word under each. -->
       <div class="bench">
         <div class="transport">
-          <button type="button" id="back10" class="tbtn" aria-label="Back ten seconds">
-            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5V1L7 6l5 5V7a6 6 0 1 1-6 6H4a8 8 0 1 0 8-8z"/></svg>
-          </button>
-          <button type="button" id="play" class="tbtn main" aria-label="Play" disabled>
-            <svg id="ico-play" class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5l12 7-12 7z"/></svg>
-            <svg id="ico-pause" class="ico off" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 5h4v14H7zM13 5h4v14h-4z"/></svg>
-          </button>
-          <button type="button" id="fwd10" class="tbtn" aria-label="Forward ten seconds">
-            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5V1l5 5-5 5V7a6 6 0 1 0 6 6h2a8 8 0 1 1-8-8z"/></svg>
-          </button>
-          <button type="button" id="stop" class="tbtn" aria-label="Stop and go back to the start">
-            <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>
-          </button>
-          <button type="button" id="rec" class="tbtn recbtn" aria-label="Start recording">
-            <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="6"/></svg>
-          </button>
-        </div>
+          <span class="tgroup">
+            <span class="tcell">
+              <button type="button" id="back10" class="tbtn" aria-label="Back ten seconds">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5V1L7 6l5 5V7a6 6 0 1 1-6 6H4a8 8 0 1 0 8-8z"/></svg>
+              </button>
+            </span>
+            <span class="tcell">
+              <button type="button" id="play" class="tbtn main" aria-label="Play" disabled>
+                <svg id="ico-play" class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5l12 7-12 7z"/></svg>
+                <svg id="ico-pause" class="ico off" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 5h4v14H7zM13 5h4v14h-4z"/></svg>
+              </button>
+            </span>
+            <span class="tcell">
+              <button type="button" id="fwd10" class="tbtn" aria-label="Forward ten seconds">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5V1l5 5-5 5V7a6 6 0 1 0 6 6h2a8 8 0 1 1-8-8z"/></svg>
+              </button>
+            </span>
+            <span class="tcell">
+              <button type="button" id="stop" class="tbtn" aria-label="Stop and go back to the start">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>
+              </button>
+            </span>
+          </span>
 
-        <p class="wavehint">Click the wave to jump. Drag across it to mark a loop.<br>Double-click any dial to put it back to normal.</p>
+          <span class="tdivider" aria-hidden="true"></span>
+
+          <span class="tgroup">
+            <span class="tcell">
+              <button type="button" id="mic-open" class="tbtn micbtn" aria-label="Turn the microphone on">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 14a3 3 0 0 0 3-3V6a3 3 0 0 0-6 0v5a3 3 0 0 0 3 3zm6-3a6 6 0 0 1-5 5.91V21h-2v-4.09A6 6 0 0 1 6 11h2a4 4 0 0 0 8 0z"/></svg>
+              </button>
+              <span class="k-name t-name">Mic</span>
+            </span>
+            <span class="tcell">
+              <button type="button" id="rec-new" class="tbtn recbtn" aria-label="Record new, just your voice">
+                <svg id="ico-new" class="ico" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="6"/></svg>
+                <svg id="ico-new-stop" class="ico off" viewBox="0 0 24 24" aria-hidden="true"><rect x="7" y="7" width="10" height="10" rx="2"/></svg>
+              </button>
+              <span class="k-name t-name" id="name-new">Record<br>new</span>
+            </span>
+            <span class="tcell">
+              <button type="button" id="rec-over" class="tbtn overbtn" aria-label="Overdub, record while the song plays">
+                <svg id="ico-over" class="ico" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="6"/></svg>
+                <svg id="ico-over-stop" class="ico off" viewBox="0 0 24 24" aria-hidden="true"><rect x="7" y="7" width="10" height="10" rx="2"/></svg>
+              </button>
+              <span class="k-name t-name" id="name-over">Overdub</span>
+            </span>
+            <span class="tcell" id="cell-last" hidden>
+              <button type="button" id="rec-last" class="tbtn" aria-label="Keep the last two minutes the microphone heard">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3a9 9 0 1 0 9 9h-2a7 7 0 1 1-7-7v3l4-4-4-4z"/><path d="M11 7h2v5.3l3.4 2-1 1.7L11 13.4z"/></svg>
+              </button>
+              <span class="k-name t-name">Keep<br>last</span>
+            </span>
+          </span>
+        </div>
 
         <!-- data-centre says which value sits at twelve o'clock, and
              data-default is where a double-click puts the dial back to. -->
@@ -172,7 +224,7 @@
          now a labelled row of tabs joined to the panel below it. -->
     <nav class="tabs" role="tablist" aria-label="Sections">
       <button type="button" class="tab on" role="tab" data-tab="loop" aria-selected="true">Loop</button>
-      <button type="button" class="tab" role="tab" data-tab="record" aria-selected="false">Record</button>
+      <button type="button" class="tab" role="tab" data-tab="takes" aria-selected="false">Takes</button>
       <button type="button" class="tab" role="tab" data-tab="notes" aria-selected="false">Notes</button>
       <button type="button" class="tab" role="tab" data-tab="click" aria-selected="false">Click track</button>
       <button type="button" class="tab" role="tab" data-tab="setup" aria-selected="false">Set-up</button>
@@ -219,72 +271,32 @@
       </section>
 
       <!-- Record -->
-      <section class="desk rec" data-panel="record" hidden>
-        <div class="panel">
-          <h2 class="plab">Record</h2>
-          <!-- Ted: "I don't understand how to use the recorder." It is three
-               things in order, so it is numbered and in order. -->
-          <ol class="steps">
-            <li>
-              <span class="num">1</span>
-              <div class="stepbody">
-                <b>Pick your microphone and switch it on</b>
-                <div class="looprow">
-                  <select id="mic-pick" aria-label="Which microphone to record from"></select>
-                  <button type="button" id="mic-open" class="chip">Turn the microphone on</button>
-                </div>
-              </div>
-            </li>
-            <li>
-              <span class="num">2</span>
-              <div class="stepbody">
-                <b>Sing your loudest and keep the bar out of the red</b>
-                <div class="meterrow">
-                  <div class="meter" aria-hidden="true"><i id="meter-fill"></i><b id="meter-peak"></b></div>
-                </div>
-                <span class="metertext" id="meter-text">The microphone is off.</span>
-                <p class="note" id="mic-warning" hidden></p>
-              </div>
-            </li>
-            <li>
-              <span class="num">3</span>
-              <div class="stepbody">
-                <b>Record</b>
-                <div class="looprow">
-                  <button type="button" id="rec-start" class="chip strong" disabled>Start recording</button>
-                  <button type="button" id="rec-stop" class="chip" disabled>Stop and keep it</button>
-                  <label class="sw" for="rec-with-song"><input type="checkbox" id="rec-with-song" checked>
-                    <span>Play the song too</span></label>
-                  <span class="marked" id="rec-time"></span>
-                </div>
-                <span class="note">Use headphones — otherwise the microphone hears the song as well as you.</span>
-              </div>
-            </li>
-          </ol>
-
-          <h3 class="plab sub">Other ways to record</h3>
-          <div class="looprow">
-            <button type="button" id="rec-last" class="chip" disabled title="Save what the microphone has already heard">Keep the last 2 minutes</button>
-            <button type="button" id="rec-system" class="chip">Record what the computer is playing</button>
-          </div>
-          <span class="note">Keeping the last 2 minutes saves what the microphone already heard,
-            so you never have to have pressed record first. Recording the computer makes Windows
-            show its screen-sharing bar, which is normal.</span>
-          <div class="looprow">
-            <label class="pick"><span>Line takes up by</span>
-              <input type="number" id="latency" class="tbox short" min="-500" max="500" step="5" value="0" aria-label="Line takes up by, in milliseconds"/>
-            </label>
-            <span class="note">Your voice reaches the computer a little after you sing it. If a take
-              sits late against the song, put that delay here in thousandths of a second.</span>
-          </div>
-        </div>
+      <!-- Takes. Recording itself happens on the console above; what is left
+           here is the list of what came out of it, and the two settings nobody
+           changes mid-take. -->
+      <section class="desk" data-panel="takes" hidden>
         <div class="panel">
           <h2 class="plab">Your takes</h2>
           <div class="looprow">
             <button type="button" id="rec-folder" class="chip">Open the folder</button>
           </div>
           <div id="takes"></div>
-          <p class="empty" id="takes-empty">No takes yet.</p>
+          <p class="empty" id="takes-empty">No takes yet. Press <b>Record new</b> or <b>Overdub</b> on the player above.</p>
+        </div>
+        <div class="panel">
+          <h2 class="plab">Settings for recording</h2>
+          <div class="looprow">
+            <label class="pick"><span>Line takes up by</span>
+              <input type="number" id="latency" class="tbox short" min="-500" max="500" step="5" value="0" aria-label="Line takes up by, in milliseconds"/>
+            </label>
+          </div>
+          <p class="note">Your voice reaches the computer a little after you sing it. If a take
+            sits late against the song, put that delay here in thousandths of a second.</p>
+          <div class="looprow">
+            <button type="button" id="rec-system" class="chip">Record what the computer is playing</button>
+          </div>
+          <p class="note">This records the sound coming out of the computer instead of your
+            microphone. Windows shows its screen-sharing bar while it runs, which is normal.</p>
         </div>
       </section>
 
@@ -330,6 +342,14 @@
               <select id="out-pick" aria-label="Which speakers to play through"></select>
             </label>
           </div>
+          <!-- Beside the speakers, because both name a piece of hardware you
+               choose once and then forget. -->
+          <div class="looprow">
+            <label class="pick"><span>Record from</span>
+              <select id="mic-pick" aria-label="Which microphone to record from"></select>
+            </label>
+          </div>
+          <p class="note" id="mic-warning" hidden></p>
           <div class="looprow">
             <button type="button" id="defaults-open" class="chip">Make this the app that opens my music</button>
             <span class="note" id="defaults-state">Windows will not let an app do this by itself — it opens Settings so you can confirm it once.</span>
@@ -380,11 +400,20 @@
             loops are untouched.</p>
 
           <h3>Recording</h3>
-          <p>Open the <b>Record</b> tab and work down the three numbered steps: pick the
-            microphone and turn it on, watch the bar while you sing, then press
-            <b>Start recording</b>. The round red button in the transport does the same thing.</p>
-          <p>Takes are kept as WAV files on this computer. <b>Save it with the song</b> makes a
-            single file of your take and the song together, for sending to somebody.</p>
+          <p>Recording happens on the player itself, to the right of the playback buttons.
+            <b>Record new</b> (red) records just your voice. <b>Overdub</b> (orange) starts the
+            song and records you against it — overdub is the studio word for singing onto a
+            track that is already there.</p>
+          <p>Press either one and it records; press the same button again to stop and keep the
+            take. You do not have to turn the microphone on first — it opens by itself. The
+            <b>Mic</b> button turns it on early so you can check your level before you start,
+            and <b>Keep last</b> saves the last two minutes the microphone already heard, so a
+            good run is never lost for want of pressing record.</p>
+          <p>While the microphone is on, <b>Your voice</b> appears in the display with a bar
+            showing how loud you are. Sing your loudest and keep it out of the red.</p>
+          <p>Takes are listed under <b>Takes</b> and kept as WAV files on this computer.
+            <b>Save it with the song</b> makes a single file of your take and the song together,
+            for sending to somebody.</p>
 
           <h3>The wave</h3>
           <p>On a stereo song the left channel is drawn on top and the right channel underneath,

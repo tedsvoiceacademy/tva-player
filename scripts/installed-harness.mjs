@@ -306,17 +306,17 @@ try {
   console.log('\n--- recording, from inside the package ---');
   /* The worklet is a separate file loaded by URL, which is the other thing an
      archive can break. */
-  await page.click('.tab[data-tab="record"]');
+  /* Recording lives on the console now, so this drives it there. The take list
+     is behind the Takes tab, and Playwright waits for a VISIBLE element — so the
+     tab has to be opened before the list is waited for. */
+  await page.click('#rec-new');
   await page.waitForFunction(
-    () => document.getElementById('mic-pick').options.length > 0, { timeout: 15000 });
-  await page.click('#mic-open');
-  await page.waitForFunction(
-    () => !document.getElementById('rec-start').disabled, { timeout: 20000 });
+    () => document.getElementById('lamp-rec').classList.contains('lit'), { timeout: 20000 });
   check('the microphone opens and its worklet loads', true);
 
-  await page.click('#rec-start');
   await page.waitForTimeout(1800);
-  await page.click('#rec-stop');
+  await page.click('#rec-new');
+  await page.click('.tab[data-tab="takes"]');
   await page.waitForSelector('#takes .item', { timeout: 15000 });
 
   const take = await page.evaluate(async () => {
@@ -390,7 +390,12 @@ try {
 
   console.log('\n--- a song too long to hold in memory ---');
   const refusal = await page.evaluate(async () => {
-    // Pretend the open song is half an hour long and touch the speed knob.
+    /* Open the song again first. The refusal only fires on the way INTO the
+       speed engine, so once an earlier check has started it there is nothing
+       left to refuse — and this check then reads whatever message happened to
+       be on screen. Re-opening puts the player back on the streaming path. */
+    await window.__tvaOpenFirstArg();
+    await new Promise((r) => setTimeout(r, 600));
     const before = document.getElementById('msg').textContent;
     window.__tvaFakeDuration(1900);
     const el = document.getElementById('speed');

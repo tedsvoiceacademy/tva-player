@@ -146,6 +146,12 @@ body {
 /* ---- THE CHASSIS -------------------------------------------------------- */
 
 .rack {
+  /* A grid item will not go below its content's minimum unless it is told it
+     may. Without this the status line — which is one nowrap sentence — set a
+     floor of 878px and the case hung 8px past the column it sits in, which put
+     the tuner over the edge of the window. Everything inside that can ellipsise
+     already does. */
+  min-width: 0;
   display: grid; gap: 9px;
   padding: 12px 16px 12px;
   border-radius: 16px;
@@ -163,7 +169,7 @@ body {
 
 /* ---- the lit readout ---------------------------------------------------- */
 
-.face { display: flex; align-items: stretch; gap: 14px; }
+.face { display: flex; align-items: stretch; gap: 14px; min-width: 0; }
 
 .readout {
   flex: 1 1 auto; min-width: 0;
@@ -219,6 +225,11 @@ body {
   font-size: 0.74rem; letter-spacing: 0.04em; line-height: 1.35;
   color: var(--lit); opacity: 0.6; margin-top: 2px; min-height: 1.35em;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  /* One nowrap sentence sets a minimum width equal to the whole sentence, and
+     that floor was passed up through the readout to the case: 844px of demand
+     against 836px of room, so the dials and the tuner hung 8px past the edge.
+     This says the line's own width is not the case's business. */
+  contain: inline-size;
 }
 
 .face-side { display: flex; align-items: center; }
@@ -266,15 +277,22 @@ body {
  * there could be clicked at all. Below its floor the dials wrap to a line of
  * their own instead, which costs height only on a window too narrow to hold
  * both. */
+/* OUT OF THE BENCH ENTIRELY. Its 9rem floor was 166px of the bench's 836, and
+   the record buttons need that width. On a line of its own under the wave it
+   costs one 17px line plus the case's 9px gap, and that is the whole price of
+   the move. It must never take TWO lines or the price doubles, so it is pinned
+   to one and ellipsised. */
 .wavehint {
-  /* A basis of 9rem, not auto. A wrapping flex row decides whether to wrap from
-     each item's BASIS, and auto means the full width of the sentence — so with
-     wrapping switched back on this jumped to a line of its own at every window
-     size and took 62 pixels with it. */
-  margin: 0; flex: 1 1 9rem; min-width: 9rem; text-align: center;
+  margin: 0; text-align: center;
   font-size: 0.74rem; line-height: 1.4; color: var(--cream); opacity: 0.5;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  /* min-width: 0 is not decoration. A nowrap element's minimum width is its
+     whole sentence, and a grid item is not allowed to go below its minimum —
+     so without this the case was forced 8px wider than the column it sits in
+     and the tuner hung off the right-hand edge of the window. */
+  min-width: 0;
 }
-@media (max-width: 980px) { .wavehint { display: none; } }
+@media (max-width: 1080px) { .wavehint { display: none; } }
 
 /* ---- transport and the knob bank ---------------------------------------- */
 
@@ -284,10 +302,34 @@ body {
    it is the only thing here that reads just as well narrow. */
 .bench {
   display: flex; flex-wrap: wrap; align-items: center;
-  justify-content: space-between; gap: 10px 18px;
+  justify-content: space-between; gap: 10px 14px;
 }
 .bench > .transport, .bench > .bank { flex: 0 0 auto; }
-.transport { display: flex; align-items: center; gap: 8px; }
+
+/* THE RECORD TOOLS ARE TRANSPORT BUTTONS. Same chrome, same row, same centre
+   line. A cell with a fixed 52px button row is what keeps every round button on
+   that line whether or not it carries a word underneath, so adding a label
+   moves nothing else. */
+.transport { display: flex; align-items: flex-start; gap: 5px; flex-wrap: nowrap; }
+.tgroup { display: flex; align-items: flex-start; gap: 5px; }
+.tcell {
+  display: grid; grid-template-rows: 52px auto;
+  justify-items: center; align-items: center; gap: 1px;
+  min-width: 40px;
+}
+/* Capped, so a longer word wraps to a second line instead of shoving the dials
+   off the bench. The whole bench has 836px at a 1180 window and the dials take
+   390 of it — this cap is the difference between one row and two. */
+/* Each word breaks where the markup says, so a cell is only as wide as its
+   longest LINE rather than as wide as the cap. Capping them all instead made
+   every labelled cell 61px and the transport 449 against a budget of 436, and
+   the dials dropped to a second line taking 88px of case with them. The cap
+   stays as a guard against a future label nobody measured. */
+.t-name { max-width: 4.4rem; text-align: center; line-height: 1.12; display: block; }
+.tdivider {
+  align-self: center; width: 1px; height: 26px; margin: 0 3px;
+  background: rgba(255, 255, 255, 0.14);
+}
 
 .tbtn {
   display: grid; place-items: center; width: 40px; height: 40px;
@@ -317,7 +359,10 @@ body {
    A class the stylesheet owns cannot be overridden by anything else here. */
 .tbtn .ico.off { display: none; }
 
-.bank { display: flex; gap: 18px; flex-wrap: wrap; }
+/* 14, not 18. The record buttons need the width, and four dials sitting a
+   little closer together is a cheaper price than the dials dropping to a row of
+   their own, which costs 88px of case. */
+.bank { display: flex; gap: 14px; flex-wrap: wrap; }
 .knob {
   position: relative; width: 84px;
   display: flex; flex-direction: column; align-items: center; gap: 2px;
@@ -445,17 +490,57 @@ body {
 
 /* ---- recording ---------------------------------------------------------- */
 
+.recbtn { border-color: rgba(255, 140, 140, 0.32); }
 .recbtn svg { fill: #ff7a7a; }
 .recbtn.on {
   background: linear-gradient(180deg, #e06060, #b13a3a);
   border-color: rgba(255, 170, 170, 0.6);
 }
 .recbtn.on svg { fill: #fff; }
+
+/* OVERDUB. Ted asked for "a slightly larger button that is orange (mixes the
+   red of record and the yellow of play)", so the colour is the average of the
+   two rather than a shade picked by eye: gold #d4a84b with record red #e06060
+   gives #da8456, lifted to the gold's own saturation as #e08050. Its gradient
+   ends are the same average taken of the pairs already in this file.
+   46px sits between the red 40 and the gold play 52, so size says which of the
+   three matters most before the colour has to. */
+.overbtn {
+  width: 46px; height: 46px;
+  background: linear-gradient(180deg, #f09669, #b56537);
+  border-color: rgba(255, 200, 155, 0.6);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.42),
+              0 0 16px rgba(224, 128, 80, 0.38), 0 2px 8px rgba(0,0,0,0.5);
+}
+.overbtn svg { width: 21px; height: 21px; fill: #2b1508; opacity: 1; }
+.overbtn.on { background: linear-gradient(180deg, #e08050, #8f4620);
+              border-color: rgba(255, 190, 150, 0.75); }
+.overbtn.on svg { fill: #fff; }
+
+.micbtn.on { background: linear-gradient(180deg, #4fbf7a, #2c7a4c);
+             border-color: rgba(150, 240, 190, 0.6); }
+.micbtn.on svg { fill: #fff; opacity: 1; }
 .lamp.rec.lit i { background: #ff6b6b; box-shadow: 0 0 9px rgba(255, 107, 107, 0.9); }
 
-.meterrow { display: flex; align-items: center; gap: 10px; margin: 8px 0; }
+/* THE LEVEL, AS A PIECE OF THE INSTRUMENT. It used to be a progress bar in a
+   form. It is now the tuner's twin — same lit glass, same gold label, same
+   place — because Ted's complaint was that recording did not look like the
+   rest of the app, and a bar in a panel is not something you fix by restyling
+   the bar. It costs the case no height: .face is a row. */
+.level {
+  flex: 0 0 132px; display: grid; align-content: center; gap: 3px;
+  border-radius: 10px; padding: 8px 12px; text-align: center;
+  background: radial-gradient(120% 160% at 50% 0%, #16304a 0%, #061020 70%);
+  border: 1px solid rgba(0, 0, 0, 0.6);
+  box-shadow: inset 0 2px 12px rgba(0, 0, 0, 0.78);
+}
+.levelstate {
+  font-size: 0.62rem; line-height: 1.25; color: var(--cream); opacity: 0.6;
+}
+@media (max-width: 1080px) { .level { flex-basis: 108px; } }
+
 .meter {
-  position: relative; flex: 1 1 auto; height: 12px; border-radius: 999px;
+  position: relative; flex: 1 1 auto; height: 10px; border-radius: 999px;
   background: #050c18; border: 1px solid rgba(0, 0, 0, 0.6);
   box-shadow: inset 0 1px 5px rgba(0, 0, 0, 0.7); overflow: hidden;
 }
@@ -469,7 +554,6 @@ body {
   left: 0; opacity: 0.8;
 }
 .meter.clipped { border-color: #e06060; box-shadow: 0 0 0 1px #e06060; }
-.metertext { font-size: 0.76rem; opacity: 0.7; min-width: 12rem; }
 
 .pick {
   display: inline-flex; align-items: center; gap: 7px;
@@ -527,10 +611,6 @@ body {
 
 .desk { display: grid; grid-template-columns: 1.3fr 1fr; gap: 12px; }
 .desk.wide1 { grid-template-columns: 1fr; }
-/* The recording steps get the wider side. In an even split the three buttons
-   in step three wrapped onto a second line, which pushed the step itself off
-   the bottom of the window — the exact thing Ted hit. */
-.desk.rec { grid-template-columns: 1.6fr 1fr; }
 @media (max-width: 1040px) { .desk { grid-template-columns: 1fr; } }
 
 .panel {
@@ -632,21 +712,8 @@ body {
 
 /* ---- numbered steps, the help page, and dragging a song in -------------- */
 
-/* "I don't understand how to use the recorder." It is three things in order,
-   so it is drawn as three things in order rather than as a pile of rows. */
-.steps { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
-.steps li { display: grid; grid-template-columns: 22px 1fr; gap: 9px; align-items: start; }
-.steps .num {
-  display: grid; place-items: center; width: 22px; height: 22px; border-radius: 999px;
-  background: linear-gradient(180deg, var(--gold-hover), var(--gold));
-  color: var(--navy-deep); font-size: 0.74rem; font-weight: 700;
-}
-.stepbody { min-width: 0; display: grid; gap: 5px; }
-.stepbody > b { font-size: 0.83rem; font-weight: 600; color: var(--cream); }
-.stepbody .note, .stepbody .metertext { margin: 0; }
-.steps .meterrow { margin: 0; }
-
-.plab.sub { display: block; margin-top: 12px; opacity: 0.6; }
+/* The numbered steps are gone with the Record tab. Recording is four round
+   buttons on the console now, so there is no procedure left to number. */
 
 .dropnote {
   margin: 6px 2px 0; text-align: center;

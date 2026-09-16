@@ -185,6 +185,8 @@ async function openSongNow(next) {
     say(err?.message ?? 'That file would not open.');
     $('now-name').textContent = 'COULD NOT OPEN';
     $('play').disabled = true;
+    song = null;
+    paintRecord();
     return;
   }
 
@@ -210,6 +212,7 @@ async function openSongNow(next) {
   }
 
   $('play').disabled = false;
+  paintRecord();
   paintTimes(player.currentTime);
   drawWave();
   paintRuler();
@@ -881,6 +884,7 @@ window.__tvaWaveLanes = () => (peaks ? (peaks.right ? 2 : 1) : 0);
 wireKnobs();
 wireWave();
 wireDrop();
+paintRecord();
 paintControls();
 paintSections();
 drawWave();
@@ -993,8 +997,8 @@ for (const tab of document.querySelectorAll('.tab')) {
        scrolled showed its middle, with its own heading out of sight — which is
        how the take list came to look empty when it was not. */
     document.querySelector('.deskwrap').scrollTop = 0;
-    if (tab.dataset.tab === 'record') refreshTakes();
-    if (tab.dataset.tab === 'setup') refreshOutputs();
+    if (tab.dataset.tab === 'takes') refreshTakes();
+    if (tab.dataset.tab === 'setup') { refreshOutputs(); refreshMics(); }
   });
 }
 
@@ -1021,26 +1025,103 @@ async function refreshMics() {
   return mics;
 }
 
-$('mic-open').addEventListener('click', async () => {
+/* ========================================================================
+   RECORDING, ON THE CONSOLE
+
+   Ted, after installing it: "The recording feature lacks polish... Ugly, and
+   hard to figure out quickly. Ideally, it would simply be an added layer to the
+   playback interface... buttons like the transport buttons in the player part
+   of the app."
+
+   So there is no recording screen any more. Two buttons sit in the transport:
+   red records the voice on its own, orange starts the song and records against
+   it. Each one is its own start and stop, exactly the way play becomes pause —
+   and for the same reason it is done with a CLASS and not the hidden attribute,
+   which was measured not to take on these inline SVGs.
+
+   Every button's look comes from one function. Painting them at each of the
+   five call sites is how a state machine ends up disagreeing with itself.
+   ======================================================================== */
+
+/* Which button owns the take in progress: 'new', 'over', or null. */
+let takeOwner = null;
+
+function paintRecord() {
+  const running = recorder.running;
+  const live = micOpen;
+
+  $('mic-open').classList.toggle('on', live);
+  $('mic-open').setAttribute('aria-label',
+    live ? 'Turn the microphone off' : 'Turn the microphone on');
+  $('cell-last').hidden = !live;
+  $('rec-last').disabled = !live || running;
+
+  for (const [which, btn, name, icon, stopIcon, word] of [
+    ['new', 'rec-new', 'name-new', 'ico-new', 'ico-new-stop', 'Record<br>new'],
+    ['over', 'rec-over', 'name-over', 'ico-over', 'ico-over-stop', 'Overdub'],
+  ]) {
+    const mine = running && takeOwner === which;
+    $(btn).classList.toggle('on', mine);
+    $(btn).disabled = running && !mine;
+    $(icon).classList.toggle('off', mine);
+    $(stopIcon).classList.toggle('off', !mine);
+    /* Written with its own break, like the resting words, so the cell does not
+       grow the moment a take starts and push the dials onto a second row. */
+    $(name).innerHTML = mine ? 'Stop &amp;<br>keep' : word;
+  }
+
+  /* Overdub is meaningless with nothing to sing over, so it says so by being
+     dark rather than by letting you press it and then explaining. */
+  if (!running) {
+    $('rec-over').disabled = !song;
+    $('rec-over').title = song ? '' : 'Open a song first';
+  }
+
+  $('lamp-rec').classList.toggle('lit', running);
+}
+
+/* Opening the microphone is no longer something to do first. Pressing either
+   record button opens it, which is why the old numbered step one is gone. */
+async function ensureMic() {
+  if (micOpen) return true;
   try {
-    $('mic-open').disabled = true;
     const opened = await openMic($('mic-pick').value || undefined);
     await recorder.listen({ stream: opened.stream, channels: 1 });
     micOpen = true;
     await refreshMics();            // labels only arrive after permission
-    $('rec-start').disabled = false;
-    $('rec-last').disabled = false;
-    $('mic-open').textContent = 'Microphone is on';
-    $('meter-text').textContent = `Listening to ${opened.label}. Sing at your loudest and keep the bar out of the red.`;
+    $('level').hidden = false;
+    $('meter-text').textContent = 'Keep out of the red';
     const warn = $('mic-warning');
     warn.hidden = !opened.processingWarning;
     warn.className = 'note warn';
     warn.textContent = opened.processingWarning ?? '';
     startTuner();
+    paintRecord();
+    return true;
   } catch (err) {
-    $('meter-text').textContent = `That microphone would not open. ${err?.message ?? err}`;
+    say(`That microphone would not open. ${err?.message ?? err}`);
+    return false;
+  }
+}
+
+$('mic-open').addEventListener('click', async () => {
+  if (recorder.running) return;
+  $('mic-open').disabled = true;
+  try {
+    if (micOpen) {
+      await recorder.stop();
+      micOpen = false;
+      $('level').hidden = true;
+      $('tuner').hidden = true;
+      stopTuner();
+      $('meter-text').textContent = 'Off';
+      say('');
+    } else if (await ensureMic()) {
+      say('Microphone on. Sing your loudest and keep the bar out of the red.');
+    }
   } finally {
     $('mic-open').disabled = false;
+    paintRecord();
   }
 });
 
@@ -1050,59 +1131,63 @@ recorder.onLevel = ({ peak, rms, clipped }) => {
   $('meter-peak').style.left = `${Math.min(99, peak * 100)}%`;
   meter.classList.toggle('clipped', clipped);
   if (clipped) {
-    $('meter-text').textContent = 'Too loud — the take is being clipped. Back off the microphone or turn its level down.';
+    $('meter-text').textContent = 'Too loud';
   }
 };
-recorder.onSeconds = (s) => { $('rec-time').textContent = `Recording ${formatTime(s)}`; };
+recorder.onSeconds = (s) => {
+  if (recorder.running) say(`Recording ${formatTime(s)}. Press the same button again to keep it.`);
+};
 
 function recordingName() {
   return song ? song.name.replace(/\.[a-z0-9]+$/i, '') : 'Lesson';
 }
 
-$('rec-start').addEventListener('click', async () => {
+async function beginTake(which) {
+  if (recorder.running) return;
+  if (!(await ensureMic())) return;
+  const withSong = which === 'over';
+  if (withSong && !song) { say('Open a song first, or use Record new.'); return; }
   try {
     await recorder.start(recordingName());
-    $('rec-start').disabled = true;
-    $('rec-stop').disabled = false;
-    $('rec').classList.add('on');
-    $('lamp-rec').classList.add('lit');
-    if ($('rec-with-song').checked && song && !player.playing) await player.play();
-    say('Recording.');
+    takeOwner = which;
+    paintRecord();
+    if (withSong && !player.playing) await player.play();
+    say(withSong ? 'Recording with the song. Press the orange button again to keep it.'
+                 : 'Recording. Press the red button again to keep it.');
   } catch (err) {
+    takeOwner = null;
+    paintRecord();
     say(err?.message ?? 'The recording would not start.');
   }
-});
+}
 
-$('rec-stop').addEventListener('click', async () => {
+async function endTake() {
+  if (!recorder.running) return;
+  const withSong = takeOwner === 'over';
   const done = await recorder.finish();
-  $('rec-start').disabled = !micOpen;
-  $('rec-stop').disabled = true;
-  $('rec').classList.remove('on');
-  $('lamp-rec').classList.remove('lit');
-  $('rec-time').textContent = '';
-  if (player.playing && $('rec-with-song').checked) player.pause();
-  say(done ? `Kept ${formatTime(done.seconds)} as a take.` : 'Nothing was recorded.');
+  takeOwner = null;
+  paintRecord();
+  if (withSong && player.playing) player.pause();
+  say(done ? `Kept ${formatTime(done.seconds)} as a take. It is under Takes.`
+           : 'Nothing was recorded.');
   await refreshTakes();
-});
+}
+
+for (const [id, which] of [['rec-new', 'new'], ['rec-over', 'over']]) {
+  $(id).addEventListener('click', () => {
+    if (recorder.running && takeOwner === which) endTake();
+    else beginTake(which);
+  });
+}
 
 $('rec-last').addEventListener('click', async () => {
   try {
     const done = await recorder.saveLast(120, `${recordingName()} (caught)`);
-    say(done ? `Kept the last ${formatTime(done.seconds)}.` : 'There was nothing to keep.');
+    say(done ? `Kept the last ${formatTime(done.seconds)}. It is under Takes.`
+             : 'There was nothing to keep.');
     await refreshTakes();
   } catch (err) {
     say(err?.message ?? 'Nothing could be kept.');
-  }
-});
-
-$('rec').addEventListener('click', () => {
-  if (recorder.running) $('rec-stop').click();
-  else if (micOpen) $('rec-start').click();
-  else {
-    for (const tab of document.querySelectorAll('.tab')) {
-      if (tab.dataset.tab === 'record') tab.click();
-    }
-    say('Turn the microphone on first.');
   }
 });
 
@@ -1111,9 +1196,10 @@ $('rec-system').addEventListener('click', async () => {
     const got = await openSystemAudio();
     await recorder.listen({ stream: got.stream, channels: 2 });
     micOpen = true;
-    $('rec-start').disabled = false;
+    $('level').hidden = false;
     $('meter-text').textContent = `Listening to ${got.label}.`;
-    say('Ready to record what the computer is playing.');
+    paintRecord();
+    say('Ready. Press Record new to capture what the computer is playing.');
   } catch (err) {
     say(err?.message ?? 'The computer’s sound could not be captured.');
   }
@@ -1194,6 +1280,17 @@ async function playTake(take) {
 /* ========================================================================
    THE TUNER
    ======================================================================== */
+
+/* The microphone can now be turned off again from the console, so the tuner
+   needs a way to stop. It never had one: startTuner returned early if a timer
+   existed and nothing ever cleared it. */
+function stopTuner() {
+  if (!tunerTimer) return;
+  clearInterval(tunerTimer);
+  tunerTimer = null;
+  $('t-note').textContent = '—';
+  $('t-cents').textContent = '';
+}
 
 function startTuner() {
   $('tuner').hidden = false;

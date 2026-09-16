@@ -28,6 +28,23 @@
 
         </activity>
 
+        <!-- Keeping the song playing when the screen goes off. mediaPlayback is
+             not optional from Android 14: a foreground service must say what
+             kind it is, and an untyped one is refused at start. -->
+        <service
+            android:name=".PlaybackService"
+            android:exported="false"
+            android:foregroundServiceType="mediaPlayback" />
+
+        <!-- The pause button on a pair of headphones, and the buttons on the
+             lock screen. Without this receiver the pending intents the
+             notification carries have nothing to arrive at. -->
+        <receiver android:name="androidx.media.session.MediaButtonReceiver" android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MEDIA_BUTTON" />
+            </intent-filter>
+        </receiver>
+
         <provider
             android:name="androidx.core.content.FileProvider"
             android:authorities="${applicationId}.fileprovider"
@@ -50,4 +67,13 @@
          one song is asking for far more than it needs. -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <uses-feature android:name="android.hardware.microphone" android:required="false" />
+
+    <!-- Playing on with the screen off. The notification is not decoration: it
+         is what makes the service a foreground one, which is what stops Android
+         freezing the page. WAKE_LOCK keeps the processor awake, never the
+         screen. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
 </manifest>

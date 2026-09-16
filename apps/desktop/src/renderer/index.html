@@ -417,6 +417,21 @@
             <button type="button" id="defaults-open" class="chip">Make this the app that opens my music</button>
             <span class="note" id="defaults-state">Windows will not let an app do this by itself — it opens Settings so you can confirm it once.</span>
           </div>
+          <!-- Sharing a song's loops and notes with the computer. Only those:
+               what each machine knows about ITSELF — its folders, its
+               microphones, its skin — stays on that machine, because a Windows
+               folder list is of no use to a phone. -->
+          <h3 class="plab sub" data-only="android">The same loops and notes as your computer</h3>
+          <p class="note" data-only="android">Your marked parts, named parts and notes live in one
+            small file per song, in a folder inside OneDrive. The Windows app prints that folder's
+            path under its own <b>Set-up</b>. Point the phone at the same folder and a part you mark
+            on either one is there on the other.</p>
+          <div class="looprow" data-only="android">
+            <button type="button" id="share-pick" class="chip">Choose that folder</button>
+            <button type="button" id="share-stop" class="chip" hidden>Go back to the phone's own</button>
+          </div>
+          <p class="note" id="share-state" data-only="android"></p>
+
           <h3 class="plab sub">How it looks</h3>
           <div class="skins" id="skins"></div>
           <!-- What the chosen one is, printed rather than hidden in a hover.
@@ -514,6 +529,22 @@
             It turns red while a take is actually being recorded, so at a glance you can see
             both that sound is arriving and which microphone it is arriving on.</p>
           <p>Takes are listed under <b>Takes</b> and kept as WAV files on this computer.</p>
+
+          <h3 data-only="android">Playing with the screen off</h3>
+          <p data-only="android">The song keeps going when the screen goes off, and appears on the
+            lock screen with a play and a pause you can use from there or from a pair of
+            headphones. The first time you press play, Android asks whether the app may show a
+            notification — say yes. That notification is what makes the phone leave the song
+            alone; without it the song stops when the screen does.</p>
+
+          <h3 data-only="android">The same loops and notes as your computer</h3>
+          <p data-only="android">Under <b>Set-up</b>, press <b>Choose that folder</b> and point it
+            at the folder the Windows app prints under its own Set-up — it is inside OneDrive. Both
+            machines then read and write the same small file for each song, so a part you mark on
+            either one is on the other. A copy always stays on the phone as well, so a phone with
+            no signal goes on working.</p>
+          <p data-only="android">What each machine knows about itself stays put: its folders, its
+            microphones and its skin. A Windows folder list is of no use to a phone.</p>
           <h3>Getting a take out of the app</h3>
           <p>Every take carries two save buttons. <b>Save my voice</b> saves that take on its
             own. <b>Save with the song</b> makes a single file of your take and the song

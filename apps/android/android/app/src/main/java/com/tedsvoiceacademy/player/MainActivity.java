@@ -12,6 +12,7 @@ public class MainActivity extends BridgeActivity {
            page has already asked for it and been told there is no such thing. */
         registerPlugin(Files.class);
         registerPlugin(Takes.class);
+        registerPlugin(Playback.class);
         super.onCreate(savedInstanceState);
 
         /* Songs reach the audio element through this. See SongStream. */

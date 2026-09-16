@@ -278,6 +278,62 @@ try {
     check('it plays', true);
   }
 
+  console.log('\n--- playing on with the screen off ---');
+  {
+    /* A page is something Android may freeze when it is not on the screen, and
+       pressing the power button mid-practice stopped the song. The fix is to
+       tell the phone what is playing — a foreground service, audio focus and a
+       media session — and the part that can break here, invisibly, is whether
+       the page SAYS anything at the right moments. Whether the phone then
+       honours it is the one thing only a phone can answer, and the checklist
+       says so.
+
+       Also checked: that the four functions exist at all on the phone build.
+       They are optional in the shared code, because Windows does not need them
+       — so "optional" must not quietly become "absent" here. */
+    const has = await page.evaluate(() => [
+      'nowPlaying', 'playbackStopped', 'onPlaybackCommand', 'canKeepPlaying',
+    ].filter((name) => typeof window.tva[name] !== 'function'));
+    check('the phone build really implements all four playback calls',
+      has.length === 0, has.join(', ') || 'all of them');
+
+    const told = await page.evaluate(async () => {
+      const web = await import('./bridge/web-fallback.js');
+      web.PlaybackWeb.said.length = 0;
+      document.getElementById('play').click();          // pause — it was playing
+      await new Promise((r) => setTimeout(r, 400));
+      document.getElementById('play').click();          // play again
+      await new Promise((r) => setTimeout(r, 600));
+      document.getElementById('stop').click();
+      await new Promise((r) => setTimeout(r, 400));
+      return web.PlaybackWeb.said.map((x) => x.what);
+    });
+    check('it tells the phone when it pauses, when it plays and when it stops',
+      told.includes('paused') && told.includes('playing') && told.includes('stopped'),
+      told.join(' → ') || 'said nothing');
+    check('and the song it names goes with it',
+      await page.evaluate(async () => {
+        const web = await import('./bridge/web-fallback.js');
+        return web.PlaybackWeb.said.some((x) => (x.title ?? '').length > 3);
+      }));
+
+    /* The lock screen, the notification and the buttons on a pair of headphones
+       all arrive as the same command. Pressed, they must reach the same play and
+       pause the buttons on screen reach — not a second set that can disagree. */
+    const fromLockScreen = await page.evaluate(async () => {
+      const web = await import('./bridge/web-fallback.js');
+      web.PlaybackWeb.pretendCommand('play');
+      await new Promise((r) => setTimeout(r, 900));
+      const playing = document.getElementById('lamp-play').classList.contains('lit');
+      web.PlaybackWeb.pretendCommand('pause');
+      await new Promise((r) => setTimeout(r, 500));
+      const paused = !document.getElementById('lamp-play').classList.contains('lit');
+      return { playing, paused };
+    });
+    check('a play from outside the app starts it', fromLockScreen.playing);
+    check('and a pause from outside stops it', fromLockScreen.paused);
+  }
+
   console.log('\n--- the practice controls, on a phone ---');
   {
     /* The stretch engine is WASM compiled from bytes it carries, with its
@@ -414,6 +470,86 @@ try {
     check('a take saves out as an MP3 that still holds the singing',
       !saved.error && saved.peak > 0.05 && Math.abs(saved.hz - 440) < 12,
       saved.error ?? `${Math.round(saved.size / 1024)} KB, ${saved.hz?.toFixed(1)} Hz against 440`);
+  }
+
+  console.log('\n--- the same loops and notes as the computer ---');
+  {
+    /* THE CLAIM IS THAT BOTH MACHINES READ AND WRITE THE SAME FILE, so this
+       acts as the other machine: a song file is written into the shared folder
+       exactly as the Windows app would write it — one small file per song, named
+       by songFileName so the two agree — and then the song is opened on the
+       phone and the loop it came with has to be there. */
+    await page.click('.tab[data-tab="set-up"]').catch(async () => {
+      await page.click('.tab[data-tab="setup"]');
+    });
+    /* Through the button, not the function under it: whether the two buttons in
+       Set-up are wired, and whether the line under them then says the right
+       thing, is the part a person actually meets. */
+    await page.click('#share-pick');
+    await page.waitForTimeout(500);
+    const shared = await page.evaluate(() => window.tva.sharedFolder());
+    check('a folder can be shared with the computer',
+      Boolean(shared?.uri) && shared.writable === true, shared?.name ?? 'none chosen');
+    check('and Set-up says in words what that means now',
+      (await page.textContent('#share-state')).includes('either machine'),
+      (await page.textContent('#share-state')).slice(0, 70));
+
+    const seeded = await page.evaluate(async () => {
+      const core = await import('./practice-core.js');
+      const web = await import('./bridge/web-fallback.js');
+      const list = await window.tva.scanLibrary();
+      const song = list.songs[0];
+      const name = await core.songFileName(song.songKey);
+      /* Written the way the desktop writes it: the whole song file, with a
+         marked part in it that the phone has never seen. */
+      web.seedSharedFile(`songs/${name}`, JSON.stringify({
+        schemaVersion: 1,
+        songKey: song.songKey,
+        songName: song.name,
+        updatedAt: '2026-01-01T00:00:00.000Z',
+        updatedBy: 'the desktop',
+        settings: { speed: 1, semitones: 0, balance: 0, volume: 1,
+          naturalVoice: true, leadQuieter: false, oneSpeaker: false,
+          loopA: 2.5, loopB: 4.5, looping: false, sections: [] },
+        lastPositionSec: 0, notes: [], lufs: null, bpm: null, countInBars: 2,
+      }, null, 2));
+      return { fileName: name, key: song.songKey };
+    });
+
+    /* Re-opened, because the loops are read when a song is opened. */
+    await page.click('.tab[data-tab="songs"]');
+    await page.click('#songs-host .song');
+    await page.waitForTimeout(1500);
+    const arrived = await page.evaluate(() => ({
+      a: document.getElementById('loop-a')?.value ?? '',
+      b: document.getElementById('loop-b')?.value ?? '',
+    }));
+    check('a part marked on the computer is there when the song opens on the phone',
+      arrived.a === '0:02.5' && arrived.b === '0:04.5',
+      `loop reads ${arrived.a} to ${arrived.b}, from ${seeded.fileName}`);
+
+    /* And the other way. Marked here, the same file has to change — that is
+       what makes it a shared folder rather than a folder it reads from. */
+    await page.click('.tab[data-tab="loop"]');
+    await page.evaluate(() => {
+      const a = document.getElementById('loop-a');
+      const b = document.getElementById('loop-b');
+      a.value = '0:01.0'; a.dispatchEvent(new Event('change', { bubbles: true }));
+      b.value = '0:03.0'; b.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+    await page.waitForTimeout(2000);
+    const written = await page.evaluate(async (fileName) => {
+      const web = await import('./bridge/web-fallback.js');
+      const text = web.readSharedFile(`songs/${fileName}`);
+      if (!text) return { missing: true };
+      const file = JSON.parse(text);
+      return { a: file.settings.loopA, b: file.settings.loopB, by: file.updatedBy };
+    }, seeded.fileName);
+    check('and a part marked on the phone is written back into the same file',
+      !written.missing && Math.abs(written.a - 1) < 0.2 && Math.abs(written.b - 3) < 0.2,
+      written.missing ? 'the file was not written' : `loop ${written.a} to ${written.b}`);
+
+    await page.evaluate(() => window.tva.stopSharing());
   }
 
   console.log('\n--- how it looks ---');

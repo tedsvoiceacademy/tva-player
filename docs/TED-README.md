@@ -4,18 +4,15 @@ A Windows audio player with the practice controls built in, and a recorder.
 
 ## Getting the installer
 
-Every change builds a fresh installer automatically and leaves it on that
-build's own page.
+**One page, both files, no zip:**
 
-1. Go to https://github.com/tedsvoiceacademy/tva-player/actions
-   You get a **list** of builds. The installer is not on this list page — it is
-   inside one of them.
-2. **Click the blue title of the top entry** to open that build. A green tick
-   means everything passed. (A yellow dot means it is still running — wait about
-   three minutes and reload.)
-3. Scroll to the bottom of that page. Under **Artifacts** there is one row,
-   **TVA-Player-installer**. Click it and it downloads as a zip.
-4. Open the zip and pull the `.exe` out of it.
+https://github.com/tedsvoiceacademy/tva-player/releases/latest
+
+- **TVA-Player-Setup.exe** — Windows
+- **TVA-Player.apk** — your Android phone
+
+That address always points at the newest build that passed every check, so it is
+worth a bookmark. Nothing to sign into and nothing to unpack.
 
 ## Installing
 

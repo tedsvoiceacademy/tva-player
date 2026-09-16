@@ -321,4 +321,122 @@ public class Files extends Plugin {
         int slash = tail.lastIndexOf('/');
         return slash >= 0 ? tail.substring(slash + 1) : tail;
     }
+
+    /* ---- the folder shared with the computer ------------------------------
+     *
+     * The Windows app keeps a song's loops, named parts and notes in one small
+     * file per song, in a folder inside OneDrive — and it prints that folder's
+     * path under Set-up. Pointed at the same folder through Android's picker,
+     * the phone reads and writes the same files, and a part marked on the
+     * desktop is there on the phone without anything being invented in between.
+     *
+     * ONLY THOSE FILES. What each machine knows about ITSELF — which folders it
+     * has been pointed at, which microphones it has, which skin it wears — stays
+     * on that machine. Sharing a Windows folder list with a phone would put
+     * paths it cannot read into a list it cannot use.
+     *
+     * A provider that refuses to give a writable folder says so here rather
+     * than appearing to work: not every one offers a folder at all, and Google
+     * Drive's does not.
+     */
+
+    /** One named file inside a picked folder — "settings.json", "songs/ab12.json". */
+    @PluginMethod
+    public void readInTree(PluginCall call) {
+        String treeUri = call.getString("tree", "");
+        String wanted = call.getString("path", "");
+        try {
+            Uri file = findInTree(Uri.parse(treeUri), wanted, false);
+            if (file == null) { call.resolve(new JSObject().put("base64", JSObject.NULL)); return; }
+            try (InputStream in = getContext().getContentResolver().openInputStream(file)) {
+                if (in == null) { call.resolve(new JSObject().put("base64", JSObject.NULL)); return; }
+                ByteArrayOutputStream out = new ByteArrayOutputStream();
+                byte[] buffer = new byte[8192];
+                for (int read = in.read(buffer); read >= 0; read = in.read(buffer)) out.write(buffer, 0, read);
+                call.resolve(new JSObject().put("base64",
+                    Base64.encodeToString(out.toByteArray(), Base64.NO_WRAP)));
+            }
+        } catch (Exception err) {
+            call.resolve(new JSObject().put("base64", JSObject.NULL).put("error", String.valueOf(err.getMessage())));
+        }
+    }
+
+    @PluginMethod
+    public void writeInTree(PluginCall call) {
+        String treeUri = call.getString("tree", "");
+        String wanted = call.getString("path", "");
+        String base64 = call.getString("base64", "");
+        try {
+            Uri file = findInTree(Uri.parse(treeUri), wanted, true);
+            if (file == null) { call.resolve(new JSObject().put("written", false)
+                .put("error", "That folder would not take a new file.")); return; }
+            /* "wt" truncates. A settings file written over a longer one without
+               it keeps the tail of the old one and comes back as broken JSON. */
+            try (OutputStream out = getContext().getContentResolver().openOutputStream(file, "wt")) {
+                if (out == null) { call.resolve(new JSObject().put("written", false)
+                    .put("error", "That folder is read-only.")); return; }
+                out.write(Base64.decode(base64, Base64.NO_WRAP));
+            }
+            call.resolve(new JSObject().put("written", true));
+        } catch (Exception err) {
+            call.resolve(new JSObject().put("written", false).put("error", String.valueOf(err.getMessage())));
+        }
+    }
+
+    /** Can this folder actually be written to? Asked once, when it is chosen. */
+    @PluginMethod
+    public void canWriteTree(PluginCall call) {
+        String treeUri = call.getString("tree", "");
+        try {
+            Uri probe = findInTree(Uri.parse(treeUri), "tva-write-test.tmp", true);
+            if (probe == null) { call.resolve(new JSObject().put("writable", false)); return; }
+            try (OutputStream out = getContext().getContentResolver().openOutputStream(probe, "wt")) {
+                if (out == null) { call.resolve(new JSObject().put("writable", false)); return; }
+                out.write(new byte[] { 'o', 'k' });
+            }
+            DocumentsContract.deleteDocument(getContext().getContentResolver(), probe);
+            call.resolve(new JSObject().put("writable", true));
+        } catch (Exception err) {
+            call.resolve(new JSObject().put("writable", false).put("error", String.valueOf(err.getMessage())));
+        }
+    }
+
+    /* Walk a path inside a picked folder, making the folders on the way when
+       asked to. SAF has no "open this path" — every step is a listing. */
+    private Uri findInTree(Uri tree, String wanted, boolean create) throws Exception {
+        String[] parts = wanted.split("/");
+        String documentId = DocumentsContract.getTreeDocumentId(tree);
+        for (int i = 0; i < parts.length; i++) {
+            if (parts[i].isEmpty()) continue;
+            boolean last = i == parts.length - 1;
+            Uri parent = DocumentsContract.buildDocumentUriUsingTree(tree, documentId);
+            String found = childIdNamed(tree, documentId, parts[i]);
+            if (found != null) {
+                if (last) return DocumentsContract.buildDocumentUriUsingTree(tree, found);
+                documentId = found;
+                continue;
+            }
+            if (!create) return null;
+            Uri made = DocumentsContract.createDocument(getContext().getContentResolver(), parent,
+                last ? "application/json" : DocumentsContract.Document.MIME_TYPE_DIR, parts[i]);
+            if (made == null) return null;
+            if (last) return made;
+            documentId = DocumentsContract.getDocumentId(made);
+        }
+        return null;
+    }
+
+    private String childIdNamed(Uri tree, String parentId, String name) {
+        Uri children = DocumentsContract.buildChildDocumentsUriUsingTree(tree, parentId);
+        try (Cursor cursor = getContext().getContentResolver().query(children, new String[] {
+            DocumentsContract.Document.COLUMN_DOCUMENT_ID,
+            DocumentsContract.Document.COLUMN_DISPLAY_NAME,
+        }, null, null, null)) {
+            if (cursor == null) return null;
+            while (cursor.moveToNext()) {
+                if (name.equals(cursor.getString(1))) return cursor.getString(0);
+            }
+        } catch (Exception ignored) { /* a provider that has gone away */ }
+        return null;
+    }
 }

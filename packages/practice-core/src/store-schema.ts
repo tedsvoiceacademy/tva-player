@@ -122,3 +122,33 @@ function isIsoDate(value: unknown): boolean {
 export function newerOf(left: SongFile, right: SongFile): SongFile {
   return Date.parse(right.updatedAt) > Date.parse(left.updatedAt) ? right : left;
 }
+
+/* THE NAME OF A SONG'S OWN FILE, worked out the same way on every machine.
+ *
+ * A song key can hold anything a file name can, including characters Windows
+ * will not put in a path, so the file is named after a hash of the key and the
+ * key itself is stored inside the file. The Windows app has always done this in
+ * its main process with Node's crypto; the phone has to arrive at the SAME name
+ * or a song set up on the desktop opens on the phone with none of its loops.
+ *
+ * So it lives here, computed through the Web Crypto that both a browser and Node
+ * carry, and the maths harness checks the two agree rather than assuming it.
+ */
+/* THE ONLY TWO THINGS THIS PACKAGE REACHES OUTSIDE ITSELF, declared here by
+ * hand rather than by pulling in a types package.
+ *
+ * tsconfig says "types": [] on purpose: not even Node's globals are available,
+ * so nothing in here can quietly reach the file system, the network or the DOM.
+ * Naming these two keeps that true — they are the same two in a browser, in an
+ * Android WebView and in Node, which is what lets one function give the same
+ * answer on every machine. */
+declare const TextEncoder: { new (): { encode(text: string): Uint8Array } };
+declare const crypto: { subtle: { digest(algorithm: string, data: Uint8Array): Promise<ArrayBuffer> } };
+
+export async function songFileName(songKey: string): Promise<string> {
+  const bytes = new TextEncoder().encode(songKey);
+  const digest = await crypto.subtle.digest('SHA-256', bytes);
+  let hex = '';
+  for (const byte of new Uint8Array(digest)) hex += byte.toString(16).padStart(2, '0');
+  return `${hex.slice(0, 32)}.json`;
+}

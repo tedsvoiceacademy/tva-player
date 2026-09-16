@@ -2,18 +2,19 @@
 
 ## Getting it onto the phone
 
-1. On the **phone**, go to
-   https://github.com/tedsvoiceacademy/tva-player/actions and open the top build.
-2. At the bottom, under **Artifacts**, tap **TVA-Player-android**. It downloads
-   as a zip.
-3. Open the zip and tap the `.apk` inside it.
-4. Android says **"For your security, your phone can't install unknown apps from
-   this source."** Tap **Settings**, turn the switch on, come back, tap install.
-   That is the same warning Windows shows about the `.exe`, for the same reason:
-   nothing here is signed by a store.
-5. It appears as **TVA Player**.
+**On the phone, open this and tap the `.apk`:**
 
-To update later, download a newer one and tap it. Your songs, loops and settings
+https://github.com/tedsvoiceacademy/tva-player/releases/latest
+
+No sign-in, no zip, nothing to unpack. Android asks once whether to allow
+installing apps from this source — say yes, then tap the download again. It
+appears as **TVA Player**.
+
+That address always points at the newest build that passed every check, so it is
+worth a bookmark on the phone's home screen. The Windows installer is on the same
+page, which also saves unpacking a zip on the computer.
+
+To update later, open the same link and tap again. Your songs, loops and settings
 stay.
 
 ## What is the same as Windows
@@ -46,12 +47,35 @@ files there instead.
 `Android/data/com.tedsvoiceacademy.player/files/Takes`. You can see them in Files,
 and **Save my voice** puts a copy wherever you want it, Drive included.
 
-**Settings are the phone's own.** Loops and notes made on the phone stay on the
-phone, and the same for the desktop. Making the two agree is a job of its own and
-is not done yet — the app says where its settings are, the same as on Windows.
+**The same loops and notes as the computer, if you want them.** Under **Set-up**,
+*The same loops and notes as your computer* → **Choose that folder**, and point it
+at the folder the Windows app prints under its own Set-up (it is inside OneDrive).
+Both machines then read and write the same small file per song, so a part you mark
+on either one is on the other.
+
+A copy always stays on the phone as well, so a phone with no signal goes on
+working. If the folder you pick turns out to be readable but not writable —
+some providers are — the line under the button says so rather than silently
+dropping what you mark.
+
+What each machine knows about **itself** stays put: which folders it has been
+pointed at, which microphones it has, which skin it wears. A Windows folder list
+is of no use to a phone.
 
 **No drag and drop, no media keys, no "make this the app that opens my music".**
 Those are Windows things and they are not shown at all rather than shown broken.
+
+## Playing with the screen off
+
+It keeps playing, and the song appears on the lock screen with a play and a pause
+you can use from there or from a pair of headphones.
+
+Android is entitled to freeze an app it cannot see, so the app tells the phone
+what it is playing — a foreground service, audio focus and a media session, which
+is also the first half of what Android Auto needs. **Android 13 and later ask
+permission to show a notification the first time you press play.** The
+notification is not decoration: it is what makes the phone leave the song alone.
+Refuse it and the app says so, and the song will stop when the screen does.
 
 ## Android Auto
 
@@ -76,6 +100,14 @@ opens from the picker and plays, that the speed and key engine runs, that a
 recorded take holds the pitch that went into it, that a take saves out as an MP3
 that still holds the singing, and that all twelve skins repaint.
 
-**Not checked by any of that**: Android's own document picker, and a song
-streamed out of Drive. Neither can exist on a build runner. They are the first
-two things to try on the phone.
+Sharing with the computer is checked end to end: a song file is written into the
+shared folder exactly as the Windows app writes it, the phone opens that song and
+the marked part is there, then a part marked on the phone is read back out of the
+same file. The two machines are proved to agree on the file's name rather than
+assumed to.
+
+**Not checked by any of that**, because none of it can exist on a build runner:
+Android's own document picker, a song streamed out of Drive, whether OneDrive's
+provider gives a folder that can be written to, and whether the phone really does
+leave the song playing when the screen goes off. Those four are the first things
+to try, and the Windows checklist lists them.

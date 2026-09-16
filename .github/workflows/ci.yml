@@ -195,3 +195,57 @@ jobs:
           path: release/*.exe
           if-no-files-found: error
           retention-days: 30
+
+  # ONE PAGE, TWO FILES, NO ZIP.
+  #
+  # An artifact on a build page is a zip that has to be downloaded, found and
+  # unpacked — which on a phone means a file manager and three wrong turns
+  # before anything is installed. A release asset is a direct download of the
+  # file itself, at an address that never changes:
+  #
+  #   .../releases/latest/download/TVA-Player.apk
+  #   .../releases/latest/download/TVA-Player-Setup.exe
+  #
+  # Bookmark either one and it is always the newest build. This runs only when
+  # every check has passed, so the link can never point at a build that failed.
+  publish:
+    needs: [checks, android, windows]
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with: { name: TVA-Player-android, path: pickup/android }
+      - uses: actions/download-artifact@v4
+        with: { name: TVA-Player-installer, path: pickup/windows }
+
+      - name: Name them plainly
+        run: |
+          mkdir -p out
+          cp "$(ls pickup/android/*.apk | head -1)" "out/TVA-Player.apk"
+          cp "$(ls pickup/windows/*.exe | head -1)" "out/TVA-Player-Setup.exe"
+          ls -l out
+
+      # A rolling pre-release rather than a version tag: this is "the newest
+      # build", not a version anybody is depending on, and the download address
+      # has to stay the same for a bookmark to be worth making.
+      - name: Put them where one tap reaches them
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          NOTES="Built from ${GITHUB_SHA::7}. Every check passed.
+          
+          **Phone:** tap **TVA-Player.apk** below. Android asks once whether to allow
+          installing from this source — say yes, then tap the download again.
+          
+          **Windows:** download **TVA-Player-Setup.exe** and run it over the top of
+          what you have. Your settings stay."
+          if gh release view latest >/dev/null 2>&1; then
+            gh release edit latest --title "Latest build" --notes "$NOTES" --prerelease
+            gh release upload latest out/TVA-Player.apk out/TVA-Player-Setup.exe --clobber
+          else
+            gh release create latest out/TVA-Player.apk out/TVA-Player-Setup.exe \
+              --title "Latest build" --notes "$NOTES" --prerelease
+          fi

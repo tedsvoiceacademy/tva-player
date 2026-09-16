@@ -12,8 +12,8 @@
  * and answers honestly, rather than being missing and throwing.
  */
 import { Capacitor, registerPlugin } from '../capacitor/core.js';
-import { FilesWeb, TakesWeb, webFileSrc } from './web-fallback.js';
-import { songKey } from '../practice-core.js';
+import { FilesWeb, TakesWeb, PlaybackWeb, webFileSrc } from './web-fallback.js';
+import { songKey, songFileName } from '../practice-core.js';
 
 /* The web implementation is not a stand-in for the phone; it is what runs when
    there is no phone. On Android these calls go to Files.java and Takes.java, and
@@ -26,6 +26,7 @@ const native = () => Capacitor.isNativePlatform?.() ?? false;
    asked for it. The button would do nothing at all, silently, in a browser. */
 const Files = native() ? registerPlugin('Files', { web: () => FilesWeb }) : FilesWeb;
 const Takes = native() ? registerPlugin('Takes', { web: () => TakesWeb }) : TakesWeb;
+const Playback = native() ? registerPlugin('Playback', { web: () => PlaybackWeb }) : PlaybackWeb;
 const fileSrc = (path) => (native() ? Capacitor.convertFileSrc(path) : webFileSrc(path));
 
 /* ---- what the app remembers ---------------------------------------------
@@ -38,6 +39,10 @@ const fileSrc = (path) => (native() ? Capacitor.convertFileSrc(path) : webFileSr
  */
 const SETTINGS_KEY = 'tva.settings';
 const SONGS_KEY = 'tva.songs';
+/* Which folder, if any, is shared with the computer. Kept in the phone's own
+   storage on purpose: a setting that says where the shared folder is cannot
+   itself live in the shared folder. */
+const SHARED_KEY = 'tva.sharedFolder';
 
 function readJson(key, fallback) {
   try { return JSON.parse(localStorage.getItem(key) ?? '') ?? fallback; } catch { return fallback; }
@@ -87,6 +92,36 @@ async function flushChunks(key) {
 
 async function flushAllChunks() {
   await Promise.all([...pending.keys()].map((key) => flushChunks(key)));
+}
+
+/* ---- the folder shared with the computer --------------------------------- */
+
+function sharedFolder() {
+  return readJson(SHARED_KEY, null);
+}
+
+async function readShared(path) {
+  const folder = sharedFolder();
+  if (!folder?.uri) return null;
+  try {
+    const got = await Files.readInTree({ tree: folder.uri, path });
+    if (!got?.base64) return null;
+    return JSON.parse(new TextDecoder().decode(fromBase64(got.base64)));
+  } catch {
+    /* The folder has gone — a phone signed out of OneDrive, a card pulled. The
+       phone's own copy is used, and nothing is lost. */
+    return null;
+  }
+}
+
+async function writeShared(path, value) {
+  const folder = sharedFolder();
+  if (!folder?.uri || !folder.writable) return false;
+  try {
+    const bytes = new TextEncoder().encode(JSON.stringify(value, null, 2));
+    const got = await Files.writeInTree({ tree: folder.uri, path, base64: toBase64(bytes) });
+    return Boolean(got?.written);
+  } catch { return false; }
 }
 
 /* ---- the songs the person has opened ------------------------------------- */
@@ -170,13 +205,27 @@ const tva = {
   pathForFile: (file) => (file ? '' : ''),
   openDropped: async (paths) => (paths ? 0 : 0),
 
-  /* ---- what the app remembers about a song ---- */
+  /* ---- what the app remembers about a song --------------------------------
+   *
+   * A song's loops, named parts, notes, speed and key. When a folder is shared
+   * with the computer these are the SAME FILES the Windows app writes — one
+   * small file per song, named after a hash of the song's key, worked out by
+   * songFileName so both machines arrive at the same name.
+   *
+   * A copy is always kept on the phone as well. Not belt-and-braces: the shared
+   * folder is in OneDrive, and a phone with no signal has to go on working. The
+   * shared copy wins when it is there, because the other machine may have moved
+   * something on since.
+   */
   async loadSong(songKey) {
+    const shared = await readShared(`songs/${await songFileName(songKey)}`);
+    if (shared) return shared;
     return readJson(`tva.song.${songKey}`, null);
   },
   async saveSong(songFile) {
     if (!songFile?.songKey) return null;
     writeJson(`tva.song.${songFile.songKey}`, songFile);
+    await writeShared(`songs/${await songFileName(songFile.songKey)}`, songFile);
     return songFile;
   },
   async listSongs() {
@@ -338,6 +387,51 @@ const tva = {
     return true;
   },
 
+  /* ---- what is playing, told to the phone ----------------------------------
+   *
+   * A page is something Android is entitled to freeze when it is not on the
+   * screen, so pressing the power button mid-practice stopped the song. These
+   * are the moments the phone has to be told about; PlaybackService says what it
+   * does with them. They also put the song on the lock screen and give the pause
+   * button on a pair of headphones something to talk to.
+   */
+  async nowPlaying(info) {
+    const answer = info?.playing === false
+      ? await Playback.paused(info ?? {})
+      : await Playback.playing(info ?? {});
+    return answer ?? {};
+  },
+  async playbackStopped() { await Playback.stopped(); },
+  onPlaybackCommand(handler) {
+    const held = Playback.addListener('command', (event) => handler(event?.action ?? ''));
+    return () => { held?.remove?.(); };
+  },
+  async canKeepPlaying() {
+    const answer = await Playback.canKeepPlaying();
+    return Boolean(answer?.canKeepPlaying);
+  },
+
+  /* ---- sharing with the computer ---- */
+  sharedFolder: () => sharedFolder(),
+  async shareWithComputer() {
+    const got = await Files.pickFolder();
+    if (!got?.folder) {
+      return { error: got?.unsupported
+        ? 'This is not something a browser can remember. It works in the app on the phone.'
+        : 'No folder was chosen.' };
+    }
+    /* ASKED, NOT ASSUMED. Not every provider gives a folder that can be written
+       to, and one that cannot would take every part he marks and drop it. */
+    const probe = await Files.canWriteTree({ tree: got.folder.uri });
+    const folder = { ...got.folder, writable: Boolean(probe?.writable) };
+    writeJson(SHARED_KEY, folder);
+    return folder;
+  },
+  async stopSharing() {
+    try { localStorage.removeItem(SHARED_KEY); } catch { /* nothing to remove */ }
+    return true;
+  },
+
   /* ---- start-up ---- */
   onReady(handler) {
     /* The Windows app is told what it was launched with. A phone is launched
@@ -379,6 +473,50 @@ if (document.documentElement.dataset.platform === 'android') {
   const switches = document.querySelector('.switches');
   const soundHost = document.getElementById('sound-host');
   if (switches && soundHost) soundHost.append(switches);
+
+  /* The two buttons that choose the shared folder are wired here rather than in
+     app.js, because they are the one part of Set-up that only exists on a phone.
+     This module is deferred, like every module script, so the page is already
+     parsed by the time it runs. */
+  wireSharing();
+}
+
+function wireSharing() {
+  const pick = document.getElementById('share-pick');
+  const stop = document.getElementById('share-stop');
+  const state = document.getElementById('share-state');
+  if (!pick || !stop || !state) return;
+
+  const paint = () => {
+    const folder = sharedFolder();
+    stop.hidden = !folder;
+    pick.textContent = folder ? 'Choose a different folder' : 'Choose that folder';
+    if (!folder) {
+      state.textContent = 'Right now the phone keeps its own. Parts you mark here stay here.';
+      return;
+    }
+    state.textContent = folder.writable
+      ? `Sharing with “${folder.name}”. Parts you mark on either machine are on both.`
+      : `“${folder.name}” can be read but not written to, so parts marked on the phone `
+        + 'stay on the phone. Choosing the folder itself rather than something above it '
+        + 'usually fixes this.';
+  };
+
+  pick.addEventListener('click', async () => {
+    pick.disabled = true;
+    try {
+      const got = await tva.shareWithComputer();
+      state.textContent = got?.error ?? '';
+      if (!got?.error) paint();
+    } finally { pick.disabled = false; }
+  });
+
+  stop.addEventListener('click', async () => {
+    await tva.stopSharing();
+    paint();
+  });
+
+  paint();
 }
 
 export default tva;

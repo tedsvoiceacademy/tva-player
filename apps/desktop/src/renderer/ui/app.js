@@ -667,6 +667,45 @@ player.onTime = (now, total) => {
   paintTimes(now); drawWave();
   $('note-at').textContent = formatTime(now);
 };
+/* ---- telling the platform what is playing -------------------------------
+ *
+ * ASKED FOR RATHER THAN ASSUMED, because only one of the two machines needs it.
+ * A page on Android is something the phone is entitled to freeze when it is not
+ * on the screen, so pressing the power button mid-practice stopped the song —
+ * and the fix is to tell Android what is playing, which is also what puts it on
+ * the lock screen. Windows does not freeze an app that is playing and already
+ * has the media keys, so it does not implement these at all and they are
+ * deliberately optional.
+ */
+const tellPlatform = (name, ...args) => window.tva[name]?.(...args);
+
+let saidCannotKeepPlaying = false;
+function toldThePlatform(state) {
+  if (state === 'playing') {
+    Promise.resolve(tellPlatform('nowPlaying', {
+      title: song ? song.name : 'TVA Player',
+      playing: true,
+      positionSec: player.currentTime,
+    })).then((answer) => {
+      /* Android 13 and later ask before an app may show a notification, and the
+         notification is what makes the song survive the screen going off. Said
+         once, in words, rather than leaving it a mystery later. */
+      if (answer && answer.canKeepPlaying === false && !saidCannotKeepPlaying) {
+        saidCannotKeepPlaying = true;
+        say('Without permission to show a notification, the song stops when the '
+          + 'screen goes off. You can turn notifications on for TVA Player in Settings.');
+      }
+    }).catch(() => {});
+    return;
+  }
+  if (state === 'ended' || state === 'stopped') { tellPlatform('playbackStopped'); return; }
+  tellPlatform('nowPlaying', {
+    title: song ? song.name : 'TVA Player',
+    playing: false,
+    positionSec: player.currentTime,
+  });
+}
+
 player.onState = (state) => {
   const playing = state === 'playing';
   /* A class, not the hidden attribute. Measured in the real window, both SVGs
@@ -676,11 +715,27 @@ player.onState = (state) => {
   $('ico-pause').classList.toggle('off', !playing);
   $('play').setAttribute('aria-label', playing ? 'Pause' : 'Play');
   $('lamp-play').classList.toggle('lit', playing);
+  toldThePlatform(state);
   if (state === 'ended') {
     saveSoon();
     playNext(1).then((moved) => { if (!moved) say('That was the last one.'); });
   }
 };
+
+/* The lock screen, the notification, and the buttons on a pair of headphones.
+   They reach the same functions the buttons on screen do — there is one play
+   and one pause, not a second set that can disagree with the first. */
+tellPlatform('onPlaybackCommand', (action) => {
+  if (action === 'play') { player.play().catch(() => {}); return; }
+  if (action === 'pause') { player.pause(); saveSoon(); return; }
+  if (action === 'stop') { player.stop(); saveSoon(); return; }
+  if (action === 'next') { playNext(1); return; }
+  if (action === 'previous') { playNext(-1); return; }
+  if (action.startsWith('seek:')) {
+    const ms = Number(action.slice(5));
+    if (Number.isFinite(ms)) player.seek(ms / 1000);
+  }
+});
 
 $('open').addEventListener('click', () => window.tva.openSongs());
 $('play').addEventListener('click', async () => {
@@ -691,7 +746,7 @@ $('play').addEventListener('click', async () => {
     say(err?.message ?? 'This song would not start playing.');
   }
 });
-$('stop').addEventListener('click', () => { player.stop(); saveSoon(); });
+$('stop').addEventListener('click', () => { player.stop(); saveSoon(); toldThePlatform('stopped'); });
 $('back10').addEventListener('click', () => player.seek(player.currentTime - 10));
 $('fwd10').addEventListener('click', () => player.seek(player.currentTime + 10));
 
@@ -917,6 +972,11 @@ window.tva.onSongsOpened((songs) => {
   if (!firstArgSong && songs.length) firstArgSong = songs[0];
   window.__tvaOpenedCount = (window.__tvaOpenedCount ?? 0) + songs.length;
   if (songs.length) openSong(songs[0]);
+  /* A song you have just opened should be in your list. On Windows it changes
+     nothing unless the song is inside a folder the app was pointed at; on a
+     phone it is the whole of how you get back to it, because Google Drive does
+     not offer a folder to scan and every song there arrives one at a time. */
+  loadLibrary().catch(() => {});
 });
 
 window.tva.onShortcut((id) => {

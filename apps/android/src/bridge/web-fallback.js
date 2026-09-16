@@ -17,6 +17,14 @@ const files = new Map();        // uri -> Blob
 const takes = new Map();        // path -> { parts, sampleRate, channels, name, madeAt }
 const openTakes = new Map();    // key -> path
 const documents = new Map();    // uri -> Uint8Array[]
+const tree = new Map();         // path inside the shared folder -> bytes
+
+/* The checks act as the other machine through these two. */
+export function seedSharedFile(path, text) { tree.set(path, new TextEncoder().encode(text)); }
+export function readSharedFile(path) {
+  const held = tree.get(path);
+  return held ? new TextDecoder().decode(held) : null;
+}
 
 let nextId = 1;
 
@@ -66,10 +74,25 @@ export const FilesWeb = {
     });
     return { songs };
   },
-  /* A browser can be handed a folder, but it cannot be asked to remember one —
-     so this says so instead of appearing to work and then losing it. */
-  async pickFolder() { return { folder: null, unsupported: true }; },
+  /* A FOLDER, IN MEMORY. A browser cannot be given a folder it will still have
+     after a reload, so this one lasts as long as the page does — and it says so
+     in its own name rather than pretending to be somewhere on a disk. It is a
+     real implementation of the same three calls, which is what lets the checks
+     drive the whole of sharing with the computer: seed a file the way the
+     Windows app would write it, and see whether the phone reads it. */
+  async pickFolder() {
+    return { folder: { uri: 'tree:memory', name: 'this browser session' } };
+  },
   async scanFolder() { return { songs: [] }; },
+  async canWriteTree() { return { writable: true }; },
+  async readInTree({ path }) {
+    const held = tree.get(path);
+    return { base64: held ? toBase64(held) : null };
+  },
+  async writeInTree({ path, base64 }) {
+    tree.set(path, fromBase64(base64));
+    return { written: true };
+  },
   async describeUri({ uri }) {
     const file = files.get(uri);
     return { uri, name: file?.name ?? 'Song', size: file?.size ?? 0 };
@@ -154,6 +177,27 @@ export const TakesWeb = {
     const blob = takeBlob(path);
     if (!blob) return { base64: '' };
     return { base64: toBase64(await bytesOf(blob, start, length)) };
+  },
+};
+
+/* Telling the phone what is playing. There is no phone here, so this only
+   remembers what it was told — which is exactly what the checks need: whether
+   the page tells the platform at the right moments is the thing that can break,
+   and it is invisible otherwise. */
+export const PlaybackWeb = {
+  said: [],
+  listeners: [],
+  async playing(info) { PlaybackWeb.said.push({ what: 'playing', ...info }); return { canKeepPlaying: true }; },
+  async paused(info) { PlaybackWeb.said.push({ what: 'paused', ...info }); },
+  async stopped() { PlaybackWeb.said.push({ what: 'stopped' }); },
+  async canKeepPlaying() { return { canKeepPlaying: true }; },
+  addListener(event, handler) {
+    PlaybackWeb.listeners.push({ event, handler });
+    return { remove: () => {} };
+  },
+  /* Used by the checks to act as the lock screen. */
+  pretendCommand(action) {
+    for (const l of PlaybackWeb.listeners) if (l.event === 'command') l.handler({ action });
   },
 };
 

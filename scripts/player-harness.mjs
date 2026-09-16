@@ -463,6 +463,47 @@ console.log('\n--- the file a recording is written into ---');
     M.mp3KbpsFor(1) === 128 && M.mp3KbpsFor(2) === 192);
 }
 
+/* ---- one song, the same file name on every machine ----------------------
+ *
+ * The Windows app names a song's settings file after a hash of its key, in its
+ * main process, with Node's crypto. The phone works out the same name through
+ * Web Crypto. If the two ever disagree, a song set up on the desktop opens on
+ * the phone with none of its loops and nothing anywhere says why — so they are
+ * compared here against each other rather than each against itself. */
+{
+  /* THE REAL LINES FROM THE REAL FILE, lifted out and run on their own.
+     Importing store.cjs would pull in the whole main process and its workspace
+     package, which does not load under plain node — and writing the hash out a
+     second time here would only prove this harness agrees with itself. */
+  const storeSource = readFileSync(join(ROOT, 'apps/desktop/src/main/store.cjs'), 'utf8');
+  const lifted = /function fileNameForKey\(songKey\) \{([\s\S]*?)\n\}/.exec(storeSource);
+  check('the Windows naming can still be found in store.cjs', Boolean(lifted),
+    lifted ? 'lifted out and run below' : 'fileNameForKey has moved or been renamed');
+  const fileNameForKey = lifted
+    ? new Function('crypto', 'songKey', lifted[1])
+      .bind(null, (await import('node:crypto')).default)
+    : () => 'not-found';
+
+  const keys = [
+    'shenandoah.mp3::4194304',
+    'danny boy (learning track).m4a::0',
+    'a name with spaces and a comma, too.wav::12345',
+    'content://com.android.providers.media.documents/document/audio%3A1000::0',
+  ];
+  let agree = true;
+  let example = '';
+  for (const key of keys) {
+    const fromWindows = fileNameForKey(key);
+    const fromShared = await S.songFileName(key);
+    if (fromWindows !== fromShared) { agree = false; example = `${key}: ${fromWindows} vs ${fromShared}`; }
+    else example = fromShared;
+  }
+  check('a song has the same settings file name on Windows and on the phone',
+    agree, example);
+  check('and it is a name any file system will take',
+    /^[0-9a-f]{32}\.json$/.test(await S.songFileName('anything at all')));
+}
+
 const failed = results.filter((r) => !r.passed);
 console.log(`\n${results.length - failed.length}/${results.length} checks passed.`);
 if (NEGATIVE) {

@@ -25,6 +25,7 @@ import java.io.File;
 import java.io.FileOutputStream;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.io.RandomAccessFile;
 
 import org.junit.Rule;
 import org.junit.Test;
@@ -107,24 +108,85 @@ public class SongFromThePickerTest {
            it against the same window of the whole file — the status, the
            Content-Range and the hundred bytes. No audio device is involved, so
            this is the part that cannot be flaky. */
+        /* THE TRUTH, READ OFF THE DISK. Comparing the served window against a
+           second fetch of the whole file only ever proves the two agree — and
+           if the whole-file fetch is itself wrong, the check reports a fault in
+           the app that is really a fault in the check. The test copied this file
+           into place, so it can simply read bytes 1000-1099 out of it and hand
+           those over as the answer. */
+        String truth = hexOf(song, 1000, 100);
+
         String served = page.await(
             "(async function () {"
+            + "  const truth = '" + truth + "';"
             + "  const songs = JSON.parse(localStorage.getItem('tva.songs') || '[]');"
             + "  const song = songs[songs.length - 1];"
             + "  const all = new Uint8Array(await (await fetch(song.url)).arrayBuffer());"
-            + "  const r = await fetch(song.url, { headers: { Range: 'bytes=1000-1099' } });"
-            + "  const got = new Uint8Array(await r.arrayBuffer());"
-            + "  let same = got.length === 100;"
-            + "  for (let i = 0; i < got.length && same; i++) same = got[i] === all[1000 + i];"
-            + "  return { name: song.name, status: r.status, range: r.headers.get('Content-Range'),"
-            + "           total: all.length, sliced: got.length, same: same };"
+            + "  const grab = async function (from, to) {"
+            + "    const r = await fetch(song.url, { headers: { Range: 'bytes=' + from + '-' + to } });"
+            + "    return { status: r.status, range: r.headers.get('Content-Range'),"
+            + "             bytes: new Uint8Array(await r.arrayBuffer()) };"
+            + "  };"
+            /* SAYS WHERE THE BYTES CAME FROM, not merely that they differ. A
+               window served from the wrong offset and a window of rubbish are
+               different faults with different fixes, and one emulator run costs
+               fifteen minutes — so the run has to come back with the answer
+               rather than with the question again. */
+            + "  const whereFrom = function (got) {"
+            + "    if (!got.length) return 'it is empty';"
+            + "    for (let at = 0; at + got.length <= all.length; at++) {"
+            + "      let hit = true;"
+            + "      for (let i = 0; i < got.length && hit; i++) hit = all[at + i] === got[i];"
+            + "      if (hit) return 'the file\\u0027s bytes from offset ' + at;"
+            + "    }"
+            + "    return 'bytes that are nowhere in the file';"
+            + "  };"
+            + "  const hex = function (got) {"
+            + "    return [...got.slice(0, 8)].map(function (b) { return b.toString(16).padStart(2, '0'); }).join(' ');"
+            + "  };"
+            + "  const mid = await grab(1000, 1099);"
+            /* THE SAME QUESTION FROM BYTE ZERO. If the head matches and the
+               middle does not, seeking is broken. If neither matches, the
+               whole-file baseline this compares against is what is wrong, and
+               the fault is in this check rather than in the app. */
+            + "  const head = await grab(0, 99);"
+            + "  const matches = function (got, from) {"
+            + "    if (got.length !== 100) return false;"
+            + "    for (let i = 0; i < 100; i++) if (got[i] !== all[from + i]) return false;"
+            + "    return true;"
+            + "  };"
+            + "  const asHex = function (got) {"
+            + "    return [...got].map(function (b) { return b.toString(16).padStart(2, '0'); }).join('');"
+            + "  };"
+            + "  const trueToTheFile = asHex(mid.bytes) === truth;"
+            + "  return { name: song.name, total: all.length, trueToTheFile: trueToTheFile,"
+            + "           status: mid.status, range: mid.range,"
+            + "           sliced: mid.bytes.length, same: matches(mid.bytes, 1000),"
+            + "           midWas: whereFrom(mid.bytes), midHex: hex(mid.bytes),"
+            + "           wantedHex: hex(all.slice(1000, 1008)),"
+            + "           headOk: matches(head.bytes, 0), headStatus: head.status,"
+            + "           headWas: whereFrom(head.bytes), fileHeadHex: hex(all) };"
             + "})()");
 
         assertTrue("SongStream did not answer a range request with a 206: " + served,
             served.contains("\"status\":206"));
         assertTrue("The Content-Range header was wrong or missing: " + served,
             served.contains("\"range\":\"bytes 1000-1099/"));
-        assertTrue("The bytes served for a range were not the file's bytes: " + served,
+        /* THE ASSERTION THAT MATTERS, and the one that decides whether this is the
+           app's fault at all: the hundred bytes the app served are the hundred
+           bytes that are really at offset 1000 in the file on disk. */
+        assertTrue(
+            "The app served the wrong hundred bytes for 'Range: bytes=1000-1099'. This is the "
+            + "fault that stops a song seeking — the wave is drawn, the clock runs, and the "
+            + "sound comes from the wrong place. midWas says where the served window really "
+            + "came from. " + served,
+            served.contains("\"trueToTheFile\":true"));
+
+        assertTrue(
+            "The bytes served for a range were not the file's bytes. midWas says where the "
+            + "served window really came from; if headOk is true and same is false, seeking is "
+            + "broken, and if headOk is false as well then the whole-file baseline this compares "
+            + "against is what is wrong and the fault is in this check. " + served,
             served.contains("\"same\":true"));
         /* describe() asks the provider for a display name. Without it a song is
            listed as the tail of a URI, which is unreadable and was one of the
@@ -136,6 +198,18 @@ public class SongFromThePickerTest {
         page.waitUntil("and it plays",
             "document.getElementById('t-now').textContent !== '0:00'",
             20_000, "document.getElementById('t-now').textContent");
+    }
+
+    /** A window of the real file, as hex, for the page to compare against. */
+    private static String hexOf(File file, int from, int count) throws Exception {
+        byte[] window = new byte[count];
+        try (RandomAccessFile open = new RandomAccessFile(file, "r")) {
+            open.seek(from);
+            open.readFully(window);
+        }
+        StringBuilder hex = new StringBuilder(count * 2);
+        for (byte b : window) hex.append(String.format("%02x", b));
+        return hex.toString();
     }
 
     /** The eight-second song lives in the test app's own assets, not in git. */

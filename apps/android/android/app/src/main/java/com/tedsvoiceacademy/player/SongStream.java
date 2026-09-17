@@ -13,7 +13,6 @@ import android.webkit.WebResourceResponse;
 import com.getcapacitor.Bridge;
 import com.getcapacitor.BridgeWebViewClient;
 
-import java.io.FilterInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.util.HashMap;
@@ -163,44 +162,5 @@ public class SongStream extends BridgeWebViewClient {
         } catch (Exception ignored) { /* fall back to the URI's own tail */ }
         String tail = uri.getLastPathSegment();
         return tail == null ? "" : tail;
-    }
-
-    /** One window of a stream: skip to the start, stop after the length. */
-    private static class Slice extends FilterInputStream {
-        private long left;
-
-        Slice(InputStream in, long start, long length) throws IOException {
-            super(in);
-            long skipped = 0;
-            while (skipped < start) {
-                long n = in.skip(start - skipped);
-                if (n <= 0) {
-                    /* A provider whose stream will not skip. Reading forward is
-                       slower but it is the difference between a song that seeks
-                       and a song that refuses to. */
-                    if (in.read() < 0) break;
-                    skipped++;
-                } else {
-                    skipped += n;
-                }
-            }
-            this.left = length;
-        }
-
-        @Override
-        public int read() throws IOException {
-            if (left <= 0) return -1;
-            int b = super.read();
-            if (b >= 0) left--;
-            return b;
-        }
-
-        @Override
-        public int read(byte[] buffer, int at, int length) throws IOException {
-            if (left <= 0) return -1;
-            int read = super.read(buffer, at, (int) Math.min(length, left));
-            if (read > 0) left -= read;
-            return read;
-        }
     }
 }

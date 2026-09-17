@@ -38,7 +38,25 @@ import org.junit.runner.RunWith;
 @RunWith(AndroidJUnit4.class)
 public class BigTextTest {
 
-    private static final String APP = "com.tedsvoiceacademy.player";
+    /**
+     * Sets Android's own text size and opens the app fresh at it.
+     *
+     * The activity has to be built again for this to take: a web view takes its
+     * text zoom from the configuration it was created in, and MainActivity does
+     * not list fontScale among the changes it handles itself.
+     *
+     * AND NOT WITH `am force-stop`, which is the obvious way to do it and the
+     * reason the first build of this job died. An instrumented test runs inside
+     * the process of the app it is testing, so force-stopping that package kills
+     * the test runner too — the run reported "Process crashed" and two of the
+     * three tests never ran. Page.finishAndWait closes the window and leaves the
+     * process alone.
+     */
+    private static Page reopenAtTextScale(String scale) {
+        shell("settings put system font_scale " + scale);
+        Page.finishAndWait();
+        return Page.open();
+    }
 
     @Test
     public void everyTabCanBeScrolledToItsEndAtAndroidsLargerText() {
@@ -46,13 +64,9 @@ public class BigTextTest {
            font scale that silently failed to apply would leave every assertion
            below passing while measuring nothing at all, which is the most
            expensive kind of green there is. */
-        shell("settings put system font_scale 1.0");
-        shell("am force-stop " + APP);
-        double plain = size(Page.open().eval("document.documentElement.scrollHeight"));
+        double plain = size(reopenAtTextScale("1.0").eval("document.documentElement.scrollHeight"));
 
-        shell("settings put system font_scale 1.30");
-        shell("am force-stop " + APP);
-        Page page = Page.open();
+        Page page = reopenAtTextScale("1.30");
         double big = size(page.eval("document.documentElement.scrollHeight"));
         assertTrue(
             "Android's font scale never reached the web view — the page is " + big
@@ -98,7 +112,6 @@ public class BigTextTest {
     @AfterClass
     public static void putThePhoneBack() {
         shell("settings put system font_scale 1.0");
-        shell("am force-stop " + APP);
     }
 
     private static double size(String text) {

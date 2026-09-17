@@ -50,6 +50,40 @@ final class Page {
         this.web = web;
     }
 
+    /** Whichever MainActivity is on the screen right now, or null if none is. */
+    static MainActivity currentActivity() {
+        final MainActivity[] found = new MainActivity[1];
+        InstrumentationRegistry.getInstrumentation().runOnMainSync(() -> {
+            for (Activity activity : ActivityLifecycleMonitorRegistry.getInstance()
+                    .getActivitiesInStage(Stage.RESUMED)) {
+                if (activity instanceof MainActivity) found[0] = (MainActivity) activity;
+            }
+        });
+        return found[0];
+    }
+
+    /**
+     * Closes the app's window and waits for it to be gone.
+     *
+     * NOT `am force-stop`, which is the obvious tool and the wrong one: an
+     * instrumented test runs INSIDE the process of the app it is testing, so
+     * force-stopping that package kills the test runner along with it. The build
+     * that first ran these reported "Instrumentation run failed due to Process
+     * crashed" and two of the three tests never ran at all.
+     *
+     * finish() ends one activity and leaves the process alone.
+     */
+    static void finishAndWait() {
+        MainActivity live = currentActivity();
+        if (live == null) return;
+        InstrumentationRegistry.getInstrumentation().runOnMainSync(live::finish);
+        for (long end = SystemClock.uptimeMillis() + 15_000L; SystemClock.uptimeMillis() < end; ) {
+            if (currentActivity() == null) return;
+            SystemClock.sleep(150);
+        }
+        fail("the app would not close when it was asked to");
+    }
+
     /** The app, opened and ready to be told things. */
     static Page open() {
         Instrumentation instrumentation = InstrumentationRegistry.getInstrumentation();
@@ -61,14 +95,8 @@ final class Page {
 
         MainActivity live = null;
         for (long end = SystemClock.uptimeMillis() + 60_000L; SystemClock.uptimeMillis() < end; ) {
-            final MainActivity[] found = new MainActivity[1];
-            instrumentation.runOnMainSync(() -> {
-                for (Activity activity : ActivityLifecycleMonitorRegistry.getInstance()
-                        .getActivitiesInStage(Stage.RESUMED)) {
-                    if (activity instanceof MainActivity) found[0] = (MainActivity) activity;
-                }
-            });
-            if (found[0] != null) { live = found[0]; break; }
+            live = currentActivity();
+            if (live != null) break;
             SystemClock.sleep(200);
         }
         assertNotNull("the app never came up at all", live);

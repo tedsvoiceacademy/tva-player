@@ -1085,6 +1085,12 @@ window.addEventListener('resize', () => { drawWave(); });
 /* What the test harness reads to check the engine rather than the labels.
    The labels kept working all the way through the bug that froze the app, so a
    check that only reads the screen proves nothing about what is playing. */
+/* SEEKING, for the checks. Tapping the wave is a pointer drag with capture on
+   it, which a test can only approximate — and what matters is not the gesture
+   but what happens after it: the media element asks for the song from a new
+   offset, and that request has to be answered with the right bytes or the sound
+   comes from the wrong place. This is the same call the wave makes. */
+window.__tvaSeek = (seconds) => { player.seek(seconds); return player.currentTime; };
 window.__tvaMode = () => player.mode;
 window.__tvaGraph = () => player.graph;
 window.__tvaNext = () => playNext(1);

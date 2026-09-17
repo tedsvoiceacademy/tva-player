@@ -1157,6 +1157,39 @@ window.__tvaSetMicGain = (channel, db) => {
 
 window.__tvaSetMicUse = async (channel, on) => { await onMicUseChanged(channel, on); };
 
+/* CAN THE END OF THIS PANEL BE REACHED?
+ *
+ * The one question behind "I can't scroll down to get to the place to add a
+ * song", asked of a tab by name. It lives here rather than inside a check
+ * because TWO checks ask it — scripts/phone-harness.mjs at nine screen and text
+ * sizes in a desktop browser, and the instrumented test that runs the real app
+ * on a real Android at a real system font size. Written twice, the two would
+ * drift, and the one that drifted would be the one measuring nothing.
+ *
+ * It scrolls to the bottom of the page first, because the answer is about what
+ * CAN be reached, not what happens to be on the screen. */
+window.__tvaReach = (tab) => {
+  const panel = document.querySelector(`[data-panel="${tab}"]`);
+  if (!panel || panel.hidden) return null;
+  window.scrollTo(0, document.documentElement.scrollHeight);
+  const shown = [...panel.querySelectorAll('*')].filter((el) => el.offsetParent);
+  const last = shown[shown.length - 1] ?? panel;
+  const box = last.getBoundingClientRect();
+  const tabs = document.querySelector('.tabs');
+  const bar = tabs.getBoundingClientRect();
+  /* On a phone the tab bar is pinned to the bottom of the screen, so anything
+     behind it is out of reach; on Windows it sits in the page and the bottom of
+     the window is the only floor there is. */
+  const pinned = getComputedStyle(tabs).position === 'fixed';
+  return {
+    lastBottom: Math.round(box.bottom),
+    floor: Math.round(pinned ? bar.top : window.innerHeight),
+    sideways: document.documentElement.scrollWidth > window.innerWidth + 1,
+    widest: Math.round(document.documentElement.scrollWidth),
+    tabOnScreen: bar.bottom <= window.innerHeight + 1,
+  };
+};
+
 window.__tvaSkins = () => SKINS.map((s) => s.id);
 window.__tvaSkinNotes = () => SKINS.map((s) => s.what);
 window.__tvaSetSkin = (id) => applySkin(id).id;
@@ -1277,6 +1310,14 @@ for (const tab of document.querySelectorAll('.tab')) {
        scrolled showed its middle, with its own heading out of sight — which is
        how the take list came to look empty when it was not. */
     document.querySelector('.deskwrap').scrollTop = 0;
+    /* ON A PHONE THE WHOLE PAGE SCROLLS, and the tab bar sits at the bottom of
+       the screen — so tapping a tab has to bring its panel up to meet you, or
+       you land on the case with the thing you asked for somewhere below it.
+       That is what put "Open a song" 1,971 pixels down the page. */
+    if (document.documentElement.dataset.platform === 'android') {
+      const panel = document.querySelector(`[data-panel="${tab.dataset.tab}"]`);
+      panel?.scrollIntoView({ block: 'start' });
+    }
     if (tab.dataset.tab === 'takes') refreshTakes();
     if (tab.dataset.tab === 'setup') { refreshOutputs(); refreshMics(); }
   });

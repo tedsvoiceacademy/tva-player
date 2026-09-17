@@ -126,6 +126,111 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
+  # THE APP, ON A PHONE.
+  #
+  # Everything above this runs the page in desktop Chromium at a phone-sized
+  # window, and three faults reached Ted through exactly that gap: a microphone
+  # that never opened because one permission was undeclared, a song from OneDrive
+  # that would not load, and a layout nobody could scroll to the end of once
+  # Android's text size was turned up. None of them was visible without Android
+  # actually running the app — a browser has no Storage Access Framework, no
+  # runtime permissions and no system font scale.
+  phone:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: npm }
+      - uses: actions/setup-java@v4
+        with: { distribution: temurin, java-version: '21' }
+
+      # /dev/kvm is root-owned on the runner image and the emulator needs it.
+      # GitHub turned hardware-accelerated Android virtualisation on for the
+      # standard Linux runners in April 2024, public repos included, so no
+      # larger runner is needed — only permission to open the device.
+      - name: Let the runner reach /dev/kvm
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' \
+            | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      # NOT android-actions/setup-android — same reason as the android job above.
+      - name: The Android SDK the build asks for
+        run: |
+          SDK="${ANDROID_SDK_ROOT:-$ANDROID_HOME}"
+          CMD=$(ls -d "$SDK"/cmdline-tools/*/bin/sdkmanager | head -1)
+          yes | "$CMD" --licenses > /dev/null || true
+          "$CMD" "platform-tools" "platforms;android-35" "build-tools;35.0.0"
+
+      - run: npm ci
+      - name: Build the web half
+        run: node scripts/build-android.mjs
+      - name: Put it into the Android project
+        run: npx cap sync android
+        working-directory: apps/android
+
+      # The same generator the Windows and phone checks use, so the song the
+      # emulator opens is the same eight seconds they open. Generated rather
+      # than committed: no audio belongs in git.
+      - name: A song for the chooser to hand over
+        run: |
+          mkdir -p apps/android/android/app/src/androidTest/assets
+          node -e "import('./scripts/make-test-song.mjs').then(m => m.makeMp3('apps/android/android/app/src/androidTest/assets/song.mp3', { seconds: 8 }))"
+          ls -l apps/android/android/app/src/androidTest/assets
+
+      # An emulator takes minutes to create and seconds to restore.
+      - name: Keep the emulator between runs
+        uses: actions/cache@v4
+        id: avd-cache
+        with:
+          path: |
+            ~/.android/avd/*
+            ~/.android/adb*
+          key: avd-34-google_apis-x86_64
+
+      - name: Make the phone once, for the cache
+        if: steps.avd-cache.outputs.cache-hit != 'true'
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 34
+          target: google_apis
+          arch: x86_64
+          force-avd-creation: false
+          emulator-options: -no-window -gpu swiftshader_indirect -no-boot-anim -no-snapshot-load -camera-back none -camera-front none
+          disable-animations: false
+          script: echo "the phone exists"
+
+      - name: The app, on a phone
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          # google_apis, NOT google_apis_playstore. A Play image is a user build,
+          # and a web view reads its command-line file only on a userdebug device
+          # — which is the whole of how the fake microphone gets in. On a Play
+          # image the recording check could not be run at all.
+          api-level: 34
+          target: google_apis
+          arch: x86_64
+          force-avd-creation: false
+          # -noaudio is in this action's own defaults and is left out here on
+          # purpose: it takes the guest's audio device away, and the recorder is
+          # an AudioWorklet inside an AudioContext that needs an output clock
+          # before it will render anything. With it, the recording check fails
+          # for a reason that has nothing to do with the app.
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot-save -no-boot-anim -camera-back none -camera-front none
+          disable-animations: true
+          script: bash "$GITHUB_WORKSPACE/scripts/on-a-phone.sh"
+
+      - name: What the phone said
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: phone-test-results
+          path: apps/android/android/app/build/reports/androidTests/connected/**
+          if-no-files-found: ignore
+          retention-days: 14
+
   # The same on real Windows, and then the installed app — which is the only
   # thing Ted ever actually runs.
   windows:
@@ -217,7 +322,7 @@ jobs:
   # Bookmark either one and it is always the newest build. This runs only when
   # every check has passed, so the link can never point at a build that failed.
   publish:
-    needs: [checks, android, windows]
+    needs: [checks, android, windows, phone]
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     permissions:

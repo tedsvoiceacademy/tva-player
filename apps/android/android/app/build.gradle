@@ -17,10 +17,20 @@ android {
         }
     }
     buildTypes {
+        debug {
+            /* Said out loud rather than left to the default, because a check
+               depends on it: WebView reads its command-line file only for a
+               debuggable app or on a userdebug device, and that file is how the
+               emulator gets a microphone to hand the page. */
+            debuggable true
+        }
         release {
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
         }
+    }
+    testOptions {
+        animationsDisabled = true
     }
 }
 
@@ -43,6 +53,21 @@ dependencies {
     testImplementation "junit:junit:$junitVersion"
     androidTestImplementation "androidx.test.ext:junit:$androidxJunitVersion"
     androidTestImplementation "androidx.test.espresso:espresso-core:$androidxEspressoCoreVersion"
+    // Standing in for the one part of opening a song that a build runner cannot
+    // do: a person tapping a file in Android's chooser. Everything after the
+    // chooser stays the code that ships.
+    androidTestImplementation "androidx.test.espresso:espresso-intents:$androidxEspressoCoreVersion"
+    // GrantPermissionRule lives in :rules. ActivityLifecycleMonitorRegistry, which
+    // is how the tests find the running activity without ActivityScenario, is in
+    // :runner.
+    androidTestImplementation "androidx.test:core:$androidxTestCoreVersion"
+    androidTestImplementation "androidx.test:rules:$androidxTestRulesVersion"
+    androidTestImplementation "androidx.test:runner:$androidxTestRunnerVersion"
+    // FileProvider, for handing the test's own song to the stubbed chooser as a
+    // real content:// address. Named here rather than leaned on through the
+    // app's own dependencies, so a reshuffle of those cannot quietly break the
+    // tests.
+    androidTestImplementation "androidx.core:core:$androidxCoreVersion"
     implementation project(':capacitor-cordova-android-plugins')
 }
 

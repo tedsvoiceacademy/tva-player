@@ -1,0 +1,171 @@
+package com.tedsvoiceacademy.player;
+
+import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.fail;
+
+import android.app.Activity;
+import android.app.Instrumentation;
+import android.content.Context;
+import android.content.Intent;
+import android.os.SystemClock;
+import android.webkit.WebView;
+
+import androidx.test.platform.app.InstrumentationRegistry;
+import androidx.test.runner.lifecycle.ActivityLifecycleMonitorRegistry;
+import androidx.test.runner.lifecycle.Stage;
+
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+
+/**
+ * Driving the app from a test, which means driving the PAGE.
+ *
+ * The Android app is a web view with a bridge behind it: every button, every
+ * panel and every sound lives in the same renderer the Windows app uses. So a
+ * test that wants to press Record presses the page's own button, because there
+ * is no Android view to press.
+ *
+ * evaluateJavascript rather than Espresso-Web, for the same reason
+ * scripts/phone-harness.mjs drives it this way: the app is one document with
+ * named hooks on it — window.tva, window.__tvaMicState, #now-name, #t-total —
+ * and a driver built out of web atoms would have to be taught all of them again
+ * and would say "atom evaluation returned null" when it failed.
+ *
+ * EVERY WAIT CARRIES A DIAGNOSIS. When one of these goes red on a build runner
+ * nobody can attach a debugger to, the failure has to say what the app was
+ * doing, not merely that something was false.
+ *
+ * NOT ActivityScenario. MainActivity is launchMode="singleTask", and
+ * ActivityScenario launches through a bootstrap activity of its own as the task
+ * root — the two disagree about whose task this is and the launch sits there
+ * until it times out. Starting the activity the way the launcher does, and then
+ * asking the lifecycle monitor which one is resumed, does not care about launch
+ * mode at all.
+ */
+final class Page {
+
+    private final WebView web;
+
+    private Page(WebView web) {
+        this.web = web;
+    }
+
+    /** The app, opened and ready to be told things. */
+    static Page open() {
+        Instrumentation instrumentation = InstrumentationRegistry.getInstrumentation();
+        Context app = instrumentation.getTargetContext();
+        Intent start = app.getPackageManager().getLaunchIntentForPackage(app.getPackageName());
+        assertNotNull("the app has no launcher activity at all", start);
+        start.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
+        app.startActivity(start);
+
+        MainActivity live = null;
+        for (long end = SystemClock.uptimeMillis() + 60_000L; SystemClock.uptimeMillis() < end; ) {
+            final MainActivity[] found = new MainActivity[1];
+            instrumentation.runOnMainSync(() -> {
+                for (Activity activity : ActivityLifecycleMonitorRegistry.getInstance()
+                        .getActivitiesInStage(Stage.RESUMED)) {
+                    if (activity instanceof MainActivity) found[0] = (MainActivity) activity;
+                }
+            });
+            if (found[0] != null) { live = found[0]; break; }
+            SystemClock.sleep(200);
+        }
+        assertNotNull("the app never came up at all", live);
+
+        final MainActivity activity = live;
+        final WebView[] view = new WebView[1];
+        instrumentation.runOnMainSync(() -> view[0] = activity.getBridge().getWebView());
+        assertNotNull("the app came up but has no web view in it", view[0]);
+
+        Page page = new Page(view[0]);
+        /* The bridge is up before the page is, and a loaded document with no
+           bridge in it is the state every flaky web view test is really failing
+           in. So wait for both, and for the renderer's own last line of
+           start-up — __tvaSkins is defined at the end of it. */
+        page.waitUntil("the player's page loads, with the bridge and the renderer in it",
+            "document.readyState === 'complete' && typeof window.tva === 'object'"
+            + " && typeof window.__tvaSkins === 'function'",
+            60_000, "document.readyState");
+        SystemClock.sleep(600);
+        return page;
+    }
+
+    /** A plain expression. Comes back as JSON, because evaluateJavascript does. */
+    String eval(String js) {
+        final CountDownLatch done = new CountDownLatch(1);
+        final String[] answer = new String[1];
+        InstrumentationRegistry.getInstrumentation().runOnMainSync(() ->
+            web.evaluateJavascript(js, value -> { answer[0] = value; done.countDown(); }));
+        try {
+            if (!done.await(20, TimeUnit.SECONDS)) fail("the page never answered: " + shorten(js));
+        } catch (InterruptedException stopped) {
+            Thread.currentThread().interrupt();
+            throw new AssertionError(stopped);
+        }
+        return unJson(answer[0]);
+    }
+
+    /**
+     * An expression that is a promise, which is nearly all of them here.
+     *
+     * A REJECTION COMES BACK AS TEXT rather than as a null. A page that threw
+     * "NotAllowedError: Permission denied" and a page that was never asked at
+     * all look identical through evaluateJavascript otherwise, and telling those
+     * two apart is most of why these tests exist.
+     */
+    String await(String promiseExpression) {
+        eval("window.__probe = undefined; (async function () { try {"
+            + " window.__probe = { ok: true, value: await (" + promiseExpression + ") };"
+            + "} catch (e) { window.__probe = { ok: false, error: String((e && e.message) || e) }; } })()");
+        waitUntil("the page answers " + shorten(promiseExpression),
+            "window.__probe !== undefined", 45_000, "'nothing came back'");
+        String out = eval("JSON.stringify(window.__probe)");
+        if (out.contains("\"ok\":false")) {
+            fail(shorten(promiseExpression) + " threw: " + out);
+        }
+        return out;
+    }
+
+    /** @param diagnosis an expression whose value is printed when this goes red. */
+    void waitUntil(String what, String condition, long millis, String diagnosis) {
+        for (long end = SystemClock.uptimeMillis() + millis; SystemClock.uptimeMillis() < end; ) {
+            if ("true".equals(eval("!!(" + condition + ")"))) return;
+            SystemClock.sleep(250);
+        }
+        fail(what + " — after " + millis + "ms, " + diagnosis + " was " + eval(diagnosis));
+    }
+
+    /** Pulls one number out of the JSON {@link #await} hands back. */
+    static double valueOf(String json, String key) {
+        int at = json.indexOf("\"" + key + "\":");
+        if (at < 0) return Double.NaN;
+        int from = at + key.length() + 3;
+        int to = from;
+        while (to < json.length() && "-+.eE0123456789".indexOf(json.charAt(to)) >= 0) to++;
+        try {
+            return Double.parseDouble(json.substring(from, to));
+        } catch (RuntimeException notANumber) {
+            return Double.NaN;
+        }
+    }
+
+    static void sleep(long ms) {
+        SystemClock.sleep(ms);
+    }
+
+    private static String shorten(String js) {
+        String one = js.replaceAll("\\s+", " ").trim();
+        return one.length() <= 90 ? one : one.substring(0, 87) + "...";
+    }
+
+    /** evaluateJavascript answers in JSON, so a string arrives wearing quotes. */
+    private static String unJson(String value) {
+        if (value == null || "null".equals(value)) return "";
+        String out = value;
+        if (out.length() >= 2 && out.charAt(0) == '"' && out.charAt(out.length() - 1) == '"') {
+            out = out.substring(1, out.length() - 1);
+        }
+        return out.replace("\\\"", "\"").replace("\\n", "\n").replace("\\\\", "\\");
+    }
+}

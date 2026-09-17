@@ -77,6 +77,20 @@ permission to show a notification the first time you press play.** The
 notification is not decoration: it is what makes the phone leave the song alone.
 Refuse it and the app says so, and the song will stop when the screen does.
 
+## Recording on the phone
+
+The first time you press **Record new** or **Overdub**, Android asks whether to
+let the app use the microphone. Say yes. It asks once and then never again.
+
+Until this build it never worked, and the reason is worth writing down because it
+looked like nothing at all: the app asks Android for two permissions when a page
+wants a microphone — the obvious one and a second one for changing audio settings
+— and Android hands over a microphone only if both come back granted. The second
+one was not declared, and a permission that is not declared is refused on the
+spot, with no dialog and no message. So the red button lit up, nothing was
+recorded, and no check anywhere could see it, because every check ran the page in
+a desktop browser where Android's permission system does not exist.
+
 ## Android Auto
 
 **Not in this build, and worth knowing what it can ever be.** Android Auto only
@@ -114,8 +128,8 @@ their own, so the app keeps the last 200 of those.
 
 Checked, at 390 pixels, on every build: that the phone build answers everything
 the Windows app can ask for, that nothing runs off the side at 390 or 360, that
-the whole case is on screen without scrolling and there is still room to work
-under it, that everything you press is at least a fingertip across, that a song
+the whole case is on screen when the app opens, that everything you press is at
+least a fingertip across, that a song
 opens from the picker and plays, that the speed and key engine runs, that a
 recorded take holds the pitch that went into it, that a take saves out as an MP3
 that still holds the singing, and that all twelve skins repaint.
@@ -129,14 +143,41 @@ assumed to.
 The song list is checked with forty songs in it, not an empty one — which is
 what hid the fault where **Open a song** ended up 2,168 pixels below the list.
 
-The decisions inside serving a song — which bytes to send, what to say about
-their length, what to do when the length is not known — now live in a plain Java
-class with no Android in it, and fourteen cases go through them on every build.
-That is the part that failed the first time and the only part of the Android code
-a build runner can run.
+Every tab is now opened at three screen sizes and three text sizes — nine
+combinations each — and asked one question: can the last thing in it be reached,
+without the page running off the side. That check exists because turning
+Android's own **Font size** up was what made the app unusable, and nothing here
+had ever been measured at anything but the default.
 
-**Not checked by any of that**, because none of it can exist on a build runner:
-Android's own document picker, a song streamed out of Drive or OneDrive, whether
-those providers give a folder that can be written to, and whether the phone
-really does leave the song playing when the screen goes off. Those four are the
-first things to try, and the Windows checklist lists them.
+The decisions inside serving a song — which bytes to send, what to say about
+their length, what to do when the length is not known — live in a plain Java
+class with no Android in it, and fourteen cases go through them on every build.
+That is the part that failed the first time.
+
+## And now the app runs on a real Android on every build
+
+The three faults you hit all lived in the same place: the part of an Android app
+that a desktop browser has no equivalent of. So every build now installs the
+actual APK on an actual Android and drives it:
+
+- **Recording.** The page asks Android for a microphone, gets one, records for
+  three seconds through the app's own Record button, and the take is read back
+  and measured. Silence fails it.
+- **Opening a song.** A real `content://` address goes through the real picker
+  code, the real permission, the real name-and-size query and the real byte
+  serving. The clock has to read 0:08, and a hundred bytes from the middle of
+  the file have to come back exactly right.
+- **The layout at larger text.** Android's own Font size is turned up to 1.3 and
+  every tab has to be scrollable to its end.
+
+And each of those three has its fault deliberately put back on every build, with
+the check required to go red — because a check that cannot fail is not evidence.
+
+**Still not checked, and honestly so.** An emulator is not a Clarett and has one
+fake input, so nothing about several microphones at once is proved on a device.
+It has no OneDrive app, so Microsoft's own provider — the one that answers slowly,
+or will not say how long a file is — is never the thing being talked to. Nobody
+taps **Allow**, because the permission is granted before the test starts. Nothing
+listens, so no sound is ever proved audible. And an hour of playing with the
+screen off, in a pocket, needs a pocket. Those are yours to try, and the Windows
+checklist lists them.

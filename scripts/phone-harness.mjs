@@ -208,26 +208,23 @@ try {
       small.counted >= 12 && small.tooSmall.length === 0,
       small.tooSmall.slice(0, 4).join(', ') || `${small.counted} of them`);
 
-    /* THE INSTRUMENT IS ALWAYS WHOLE — the rule the desktop layout is built on,
-       and the one a phone breaks first. The case scrolled off the top the moment
-       a panel was opened, and the readout, the wave and the transport are what
-       you are looking at while you sing. */
+    /* THE CASE IS WHOLE WHEN THE APP OPENS — still the rule, but only at the top
+       of the page. The page itself scrolls on a phone, which is the opposite of
+       what Windows does and took two rounds to learn: pinned, the panel below is
+       whatever is left over, and on a small screen with Android's text size
+       turned up that was twelve pixels. */
     const whole = await page.evaluate(() => {
+      /* At the TOP of the page, which is where the app opens and where this
+         rule applies. Tapping a tab deliberately scrolls its panel up to meet
+         your thumb, so measuring after one of those would be asking a different
+         question and getting a frightening answer to it. */
+      window.scrollTo(0, 0);
       const rack = document.querySelector('.rack').getBoundingClientRect();
-      const desk = document.querySelector('.deskwrap');
-      return {
-        rackBottom: Math.round(rack.bottom),
-        rackTop: Math.round(rack.top),
-        deskH: Math.round(desk.clientHeight),
-        window: window.innerHeight,
-        pageScrolls: document.documentElement.scrollHeight > window.innerHeight + 1,
-      };
+      return { top: Math.round(rack.top), bottom: Math.round(rack.bottom), window: window.innerHeight };
     });
-    check('the whole case is on the screen without scrolling for it',
-      whole.rackTop >= 0 && whole.rackBottom <= whole.window && !whole.pageScrolls,
-      `case runs ${whole.rackTop} to ${whole.rackBottom} of ${whole.window}`);
-    check('and there is still room to work under it',
-      whole.deskH >= 150, `${whole.deskH}px of panel`);
+    check('the whole case is there when the app opens',
+      whole.top >= 0 && whole.bottom <= whole.window,
+      `case runs ${whole.top} to ${whole.bottom} of ${whole.window}`);
 
     /* The three sound switches are 200 pixels of a phone screen and every one of
        them is a thing you set and leave, so they get a tab. WITH their
@@ -552,6 +549,72 @@ try {
     await page.evaluate(() => window.tva.stopSharing());
   }
 
+  console.log('\n--- everything is reachable, on every phone ---');
+  {
+    /* THE CHECK THAT WAS MISSING, and the reason Ted could not get to a song
+       twice over. Every check here ran at one screen size with the default text
+       size — and a phone is neither. Android's own Font size and Display size
+       settings scale everything in a web view, plenty of people turn them up,
+       and screens run from 360 pixels wide to 412.
+       Measured before the fix: the Loop panel had 251 pixels for 362 pixels of
+       content on a Pixel, twelve pixels on a 360x640 screen with larger text,
+       and two tabs off the bottom. "I can't scroll beyond that."
+       So this opens every tab at nine combinations and asks the only question
+       that matters: can the last thing in it be reached. */
+    const sizes = [
+      { width: 390, height: 844, what: 'a Pixel' },
+      { width: 360, height: 640, what: 'a small phone' },
+      { width: 412, height: 915, what: 'a big phone' },
+    ];
+    const zooms = [1, 1.3, 1.5];
+    const tabs = await page.evaluate(() =>
+      [...document.querySelectorAll('.tabs .tab')].map((t) => t.dataset.tab));
+
+    let worst = null;
+    let checked = 0;
+    for (const size of sizes) {
+      for (const zoom of zooms) {
+        await page.setViewportSize(size);
+        await page.evaluate((z) => {
+          document.documentElement.style.fontSize = `${Math.round(15 * z)}px`;
+        }, zoom);
+        await page.waitForTimeout(200);
+
+        for (const tab of tabs) {
+          const button = await page.$(`.tabs .tab[data-tab="${tab}"]`);
+          if (!button || !(await button.isVisible())) continue;
+          /* The bar scrolls sideways, so the tab may need bringing into view —
+             which is itself part of being reachable. */
+          await button.scrollIntoViewIfNeeded();
+          await button.click();
+          await page.waitForTimeout(120);
+          /* THE APP'S OWN MEASUREMENT, not a second copy of it written here.
+             window.__tvaReach lives beside the renderer's other hooks and the
+             instrumented Android test calls exactly the same one, so the check
+             that runs in a browser and the check that runs on a phone cannot
+             come to disagree about what "reachable" means. */
+          const reach = await page.evaluate((name) => window.__tvaReach(name), tab);
+          if (!reach) continue;
+          checked++;
+          const ok = reach.lastBottom <= reach.floor + 1 && !reach.sideways && reach.tabOnScreen;
+          if (!ok && !worst) {
+            worst = `${tab} on ${size.what} at text x${zoom}: the last thing in it ends at `
+              + `${reach.lastBottom}, past the tab bar at ${reach.floor}`
+              + (reach.sideways ? `, and it is ${reach.widest}px wide in a ${size.width}px screen` : '')
+              + (reach.tabOnScreen ? '' : ', and the tab bar is off the bottom');
+          }
+        }
+      }
+    }
+    await page.evaluate(() => { document.documentElement.style.fontSize = ''; });
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.waitForTimeout(200);
+
+    check('every tab can be scrolled to its end, on every screen and text size',
+      worst === null && checked >= 50,
+      worst ?? `${checked} tab-and-screen combinations, all reachable`);
+  }
+
   console.log('\n--- with a real number of songs in it ---');
   {
     /* THE FAULT TED HIT, and the one every check here had missed because they
@@ -586,7 +649,12 @@ try {
       };
     });
     check('the song list really fills up', reach.rows >= 40, `${reach.rows} songs listed`);
-    check('and Open a song is on the screen the moment the tab opens, with no scrolling',
+    /* STILL THE QUESTION HE ASKED — "where do I add a song" — but the answer
+       changed shape. The page scrolls on a phone now, so the button no longer
+       has to be on screen because nothing moves; it has to be on screen because
+       tapping the tab brings its panel up to meet you, and because the button
+       sits at the head of the list rather than under forty rows of it. */
+    check('and Open a song is on the screen as soon as the tab is tapped',
       reach.top >= 0 && reach.bottom <= reach.window,
       `the button sits at ${reach.top}..${reach.bottom} of ${reach.window}`);
 
@@ -601,12 +669,32 @@ try {
     /* A hidden label with nowhere to be is not nothing: absolutely positioned
        with no top or left, it went wherever the reordered page left it — which
        was past the bottom, adding 29 pixels of scroll to a page that is supposed
-       to hold still. */
-    check('and nothing invisible is hanging off the bottom of the page',
-      await page.evaluate(() =>
-        document.documentElement.scrollHeight <= window.innerHeight + 1),
-      `page is ${await page.evaluate(() => document.documentElement.scrollHeight)} tall `
-      + `in a ${await page.evaluate(() => window.innerHeight)} window`);
+       to hold still.
+       THIS USED TO ASK WHETHER THE PAGE SCROLLED AT ALL, which was the right
+       question while the case was pinned and is the wrong one now: a phone has
+       one scrolling page on purpose. So it asks the thing the fault was actually
+       about — whether anything you cannot see is making the page longer than the
+       things you can. */
+    const tail = await page.evaluate(() => {
+      let lowest = 0;
+      for (const el of document.querySelectorAll('body *')) {
+        if (!el.offsetParent) continue;
+        const box = el.getBoundingClientRect();
+        if (getComputedStyle(el).position === 'fixed') continue;
+        lowest = Math.max(lowest, box.bottom + window.scrollY);
+      }
+      return {
+        lowest: Math.round(lowest),
+        page: document.documentElement.scrollHeight,
+        /* #tp keeps a gap under everything so the fixed tab bar is not sitting
+           on top of the last row. That gap is meant to be there. */
+        allowed: Math.round(parseFloat(getComputedStyle(document.getElementById('tp')).paddingBottom)) + 8,
+      };
+    });
+    check('and nothing invisible is making the page longer than what is on it',
+      tail.page <= tail.lowest + tail.allowed,
+      `page is ${tail.page} tall, the lowest visible thing ends at ${tail.lowest}, `
+      + `and ${tail.allowed}px of clearance is expected under it`);
   }
 
   console.log('\n--- how it looks ---');

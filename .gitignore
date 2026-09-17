@@ -14,3 +14,6 @@ apps/android/android/app/src/main/assets/capacitor.plugins.json
 apps/android/android/.gradle/
 apps/android/android/local.properties
 apps/android/android/capacitor-cordova-android-plugins/
+# The eight-second song the instrumented test hands to the picker. Generated
+# by the same script the other checks use, so no audio sits in git.
+apps/android/android/app/src/androidTest/assets/

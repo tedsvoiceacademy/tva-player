@@ -17,5 +17,10 @@ ext {
     junitVersion = '4.13.2'
     androidxJunitVersion = '1.2.1'
     androidxEspressoCoreVersion = '3.6.1'
+    // The instrumented tests: ActivityLifecycleMonitor, GrantPermissionRule
+    // and the runner. GrantPermissionRule is in :rules, not in ext:junit.
+    androidxTestCoreVersion = '1.6.1'
+    androidxTestRulesVersion = '1.6.1'
+    androidxTestRunnerVersion = '1.6.2'
     cordovaAndroidVersion = '10.1.1'
 }

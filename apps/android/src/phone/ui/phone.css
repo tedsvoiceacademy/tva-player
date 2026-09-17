@@ -27,30 +27,34 @@
 
   /* ---- the whole shape ----
    *
-   * MEASURED, NOT GUESSED. The page came out 445 pixels wide in a 390 pixel
-   * window, and the 55 was three things adding up: the shell's own 16px of side
-   * padding twice, and a transport row that is 393 pixels wide because it will
-   * not wrap. Each is dealt with below rather than hidden with overflow. */
-  /* THE INSTRUMENT IS STILL ALWAYS WHOLE. Left to grow, the case scrolled off
-     the top the moment a panel was opened — and the readout, the wave and the
-     transport are the thing you are looking at while you sing. dvh rather than
-     vh: a phone browser's toolbars come and go, and vh is measured against the
-     tallest it ever is, which puts the tabs under the bottom of the screen. */
-  #tp { height: 100dvh; padding: 0; grid-template-columns: minmax(0, 1fr); gap: 0; }
-  /* THE COLUMN, NOT THE ITEM. Capping the case at max-width: 100% did nothing,
-     because 100% of a grid item is 100% of its COLUMN — and the column had
-     already sized itself to the widest thing in it. minmax(0, 1fr) is what says
-     the column may be narrower than its contents want to be. */
-  .mid { grid-template-columns: minmax(0, 1fr); }
+   * THE PAGE SCROLLS. On Windows the case is pinned and never moves, because the
+   * instrument should always be whole — and copying that rule to a phone was a
+   * mistake that took two rounds to see. Pinned, the panel underneath is
+   * whatever is left over, and on a phone that is never enough: measured at
+   * twelve pixels on a 360x640 screen with Android's text size turned up, with
+   * two of the tabs off the bottom as well. Ted could reach the Loop panel and
+   * nothing past it.
+   *
+   * A phone has one scrolling page, and the tab bar is fixed to the bottom of
+   * the screen so it can never be the thing that is out of reach. Nothing else
+   * needs a height, which is what makes this survive a screen size and a text
+   * size nobody measured. */
+  html, body { height: auto; overflow: visible; }
+  #tp {
+    height: auto; min-height: 100dvh; padding: 0; gap: 0;
+    grid-template-columns: minmax(0, 1fr);
+    /* Room for the fixed tab bar, and the phone's own gesture bar under it. */
+    padding-bottom: calc(60px + env(safe-area-inset-bottom));
+  }
+  .mid { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto auto auto; }
   .rack {
     border-radius: 0; border-left: 0; border-right: 0;
     padding: 8px 8px 10px; gap: 8px;
-    /* The case is a grid, and a grid honours the widest thing inside it even
-       when that is wider than the screen — measured at 360, the case came out
-       366 while every row in it fitted in 354. Capped here, the rows lay
-       themselves out again in the width there actually is. */
     max-width: 100%; box-sizing: border-box;
   }
+  /* No inner scrolling anywhere: one page, one scrollbar, nothing trapped in a
+     little window of its own. */
+  .deskwrap { overflow: visible; min-height: 0; padding: 0 10px 12px; }
 
   /* ---- the lit display ---- */
   .face { flex-wrap: wrap; gap: 8px; }
@@ -94,38 +98,71 @@
      line there, with the sentence that says what each one does. */
   .switches { grid-template-columns: 1fr; gap: 10px; border-top: 0; padding-top: 0; }
 
-  /* ---- the tabs, moved to the thumb ---- */
+  /* ---- the tabs, always there ----
+   *
+   * FIXED, and one row that scrolls sideways. Left to wrap, the bar grows to two
+   * or three rows as the text size goes up and starts eating the screen it is
+   * supposed to sit at the bottom of. One row has one height, whatever the
+   * font. */
   .tabs {
-    position: sticky; bottom: 0; z-index: 5;
-    overflow-x: auto; scrollbar-width: none;
+    position: fixed; bottom: 0; left: 0; right: 0; z-index: 20;
+    flex-wrap: nowrap; overflow-x: auto; overflow-y: hidden;
+    scrollbar-width: none;
     background: var(--case-low);
     border-top: 1px solid var(--panel-border);
-    padding: 4px 6px calc(4px + env(safe-area-inset-bottom));
-    gap: 4px;
+    box-shadow: 0 -6px 18px rgba(0, 0, 0, 0.35);
+    padding: 5px 6px calc(5px + env(safe-area-inset-bottom));
+    gap: 5px;
   }
   .tabs::-webkit-scrollbar { display: none; }
   .tab { flex: 0 0 auto; min-height: 44px; padding: 0 14px; font-size: 0.8rem; }
 
-  .deskwrap { overflow-y: auto; padding: 0 10px 12px; }
   .desk, .desk.wide1 { grid-template-columns: 1fr; gap: 10px; }
 
-  /* THE BUTTON YOU CAME FOR GOES FIRST.
+  /* HEADINGS WRAP. .plab is nowrap so a panel heading sits on one line beside
+     things on a wide screen — and on a phone with Android's text size turned up,
+     "The same loops and notes as your computer" then makes the panel wider than
+     the screen and the whole page scrolls sideways. */
+  .plab, .striplab { white-space: normal; }
+  .panel { min-width: 0; overflow-wrap: anywhere; }
+  .looprow select, .pick select, .pick input, .looprow input { max-width: min(16rem, 100%); }
+  .tabs { max-width: 100vw; }
+
+  /* THE LOOP PANEL, which ran 11 pixels off the side with Android's text size
+     turned up. Three content-sized columns — the button, the time box and the
+     two nudges — is a shape that needs a desktop's width, and a grid whose
+     columns are all `auto` will not shrink below what is written in them, so it
+     simply runs off the edge instead.
+     Here the button takes a line of its own and the time box and its nudges
+     share the next, which fits at any text size because the only flexible
+     column can give. */
+  .loopgrid { grid-template-columns: minmax(0, 1fr) auto; }
+  .loopgrid > .chip { grid-column: 1 / -1; }
+  .tbox { width: auto; min-width: 0; }
+
+  /* AND EVERY CHIP. A chip is `white-space: nowrap` so a label never breaks
+     across lines on a wide screen. On a phone that is the wrong way round:
+     "Record what the computer is playing" and the four buttons on a take row
+     are each wider than the screen once Android's text size goes up, and a
+     nowrap flex item cannot shrink below what is written in it. Here a long
+     label takes two lines rather than taking the page sideways. */
+  .chip { white-space: normal; min-width: 0; }
+
+  /* ---- the song list, which is a tab here ----
    *
-   * On Windows the song list is a fixed side column: the list scrolls inside it
-   * and "Open a song" is pinned at its foot, always in view. Moved into a tab on
-   * a phone, the column's own scrolling went with it — and with forty songs in
-   * the list the button ended up 2,168 pixels down, below every one of them,
-   * seven screens into a panel 243 pixels tall. Ted: "I couldn't scroll to the
-   * song upload."
+   * On Windows this is a fixed column down the left: the list scrolls inside it
+   * and "Open a song" is pinned at its foot, always in view. Moved into a tab
+   * on a phone, that foot went UNDER the list — measured at 1,567 pixels down
+   * with forty songs in it, which is four screens past the bottom. That is
+   * "I couldn't scroll to the song upload", and it is the second time the same
+   * fault has been found.
    *
-   * Nothing is moved in the page itself; the rail is a flex column, so this
-   * lifts its footer to the top of it for phones only. The search box goes with
-   * it, because narrowing a long list is the other thing you arrive wanting. */
+   * So on a phone the two ways INTO the list come first — the button that opens
+   * a song and the box that searches — and the list itself follows them. */
   .rail { gap: 9px; }
   .railfoot { order: -10; }
   .railtop { order: -9; }
   .find { order: -8; }
-  .railfoot .dropnote { margin: 4px 0 0; }
 
   /* ---- lists and rows ---- */
   .item { gap: 8px; padding: 10px 0; }

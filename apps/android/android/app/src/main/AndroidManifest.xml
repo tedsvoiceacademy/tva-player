@@ -66,6 +66,14 @@
          one on the phone. An app that asks for the whole of your storage to play
          one song is asking for far more than it needs. -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <!-- BOTH, OR NEITHER WORKS. When the page asks for a microphone, Capacitor
+         asks Android for RECORD_AUDIO *and* MODIFY_AUDIO_SETTINGS together, and
+         hands the page the microphone only if every one of them comes back
+         granted. A permission that is not declared here is refused on the spot,
+         so leaving this one out denied the microphone every single time — the
+         app asked, Android said no to a permission nobody had heard of, and
+         recording simply never worked. -->
+    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
     <uses-feature android:name="android.hardware.microphone" android:required="false" />
 
     <!-- Playing on with the screen off. The notification is not decoration: it

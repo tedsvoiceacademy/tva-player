@@ -346,10 +346,10 @@
           </div>
           <p class="note">Your voice reaches the computer a little after you sing it. If a take
             sits late against the song, put that delay here in thousandths of a second.</p>
-          <div class="looprow">
+          <div class="looprow" data-only="windows">
             <button type="button" id="rec-system" class="chip">Record what the computer is playing</button>
           </div>
-          <p class="note">This records the sound coming out of the computer instead of your
+          <p class="note" data-only="windows">This records the sound coming out of the computer instead of your
             microphone. Windows shows its screen-sharing bar while it runs, which is normal.</p>
         </div>
       </section>
@@ -488,10 +488,17 @@
             loops are untouched.</p>
 
           <h3>Recording</h3>
-          <p>Recording happens on the player itself, to the right of the playback buttons.
+          <p data-only="windows">Recording happens on the player itself, to the right of the playback buttons.
             <b>Record new</b> (red) records just your voice. <b>Overdub</b> (orange) starts the
             song and records you against it — overdub is the studio word for singing onto a
             track that is already there.</p>
+          <p data-only="android">Recording happens on the player itself, on the row of round buttons
+            under the playback buttons. <b>Record new</b> (red) records just your voice.
+            <b>Overdub</b> (orange) starts the song and records you against it — overdub is the
+            studio word for singing onto a track that is already there.</p>
+          <p data-only="android">The first time you press either one, Android asks whether to let
+            this app use the microphone. Say yes. It asks once and then never again, and until
+            you do say yes the buttons light up and nothing is recorded.</p>
           <p>Press either one and it records; press the same button again to stop and keep the
             take. You do not have to turn the microphone on first — it opens by itself. The
             <b>Mic</b> button turns it on early so you can check your level before you start,

@@ -198,7 +198,11 @@ async function openSongNow(next) {
   await flushSave();               // whatever the last song was owed, before it goes
 
   try {
-    const { duration: d } = await player.open(next);
+    const { duration: d } = await player.open(next, {
+      timeoutMs: window.tva.openTimeoutMs ?? 15000,
+      onSlow: () => say('Still opening that song. If it lives in OneDrive or Drive '
+        + 'it may be downloading to the phone first.'),
+    });
     duration = d;
   } catch (err) {
     // The real reason, not a guess at it.
@@ -207,6 +211,15 @@ async function openSongNow(next) {
     $('play').disabled = true;
     song = null;
     paintRecord();
+    /* AND THEN THE REAL REASON UNDERNEATH IT. A media element that cannot read
+       a file says "no supported source" and nothing else, so the sentence above
+       can only ever be a guess. Where the platform can walk the steps itself —
+       can the file be described, does it have a length, do bytes come out of it
+       — it says which one failed. Asked after the message rather than before it,
+       so the app never sits silent while it finds out. */
+    Promise.resolve(tellPlatform('whySongFailed', next)).then((why) => {
+      if (why && song === null) say(why);
+    }).catch(() => {});
     return;
   }
 
@@ -686,6 +699,7 @@ function toldThePlatform(state) {
       title: song ? song.name : 'TVA Player',
       playing: true,
       positionSec: player.currentTime,
+      durationSec: duration,
     })).then((answer) => {
       /* Android 13 and later ask before an app may show a notification, and the
          notification is what makes the song survive the screen going off. Said

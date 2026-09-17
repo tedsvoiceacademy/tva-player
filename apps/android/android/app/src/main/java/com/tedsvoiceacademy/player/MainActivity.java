@@ -15,7 +15,13 @@ public class MainActivity extends BridgeActivity {
         registerPlugin(Playback.class);
         super.onCreate(savedInstanceState);
 
-        /* Songs reach the audio element through this. See SongStream. */
-        getBridge().getWebView().setWebViewClient(new SongStream(getBridge()));
+        /* Songs reach the audio element through this. See SongStream.
+         *
+         * THROUGH THE BRIDGE, NOT THE WEBVIEW. Capacitor keeps its own reference
+         * to the client and re-applies it when the web view is set up again, so
+         * setting it straight on the view leaves the two disagreeing — and the
+         * one that gets re-applied is Capacitor's, which knows nothing about
+         * serving a song. bridge.setWebViewClient sets both. */
+        getBridge().setWebViewClient(new SongStream(getBridge()));
     }
 }

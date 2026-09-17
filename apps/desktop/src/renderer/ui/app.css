@@ -217,7 +217,13 @@ body {
    happened to put it and stretched the document past the bottom of the
    window. */
 .vh {
-  position: absolute; width: 1px; height: 1px;
+  /* PINNED, not merely absolute. Absolute with no top or left means "wherever
+     the page would have put it", and when the order of what is around it
+     changes that can be past the bottom of the screen — which is what a
+     one-pixel label did to the phone layout, adding 29 pixels of scroll to a
+     page that is supposed to hold still. Nothing sees it either way. */
+  position: absolute; top: 0; left: 0;
+  width: 1px; height: 1px;
   margin: -1px; padding: 0; border: 0; overflow: hidden;
   clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap;
 }

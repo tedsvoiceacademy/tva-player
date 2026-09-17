@@ -43,7 +43,12 @@ export class Player {
 
   /* ---- Opening ---------------------------------------------------------- */
 
-  async open(song) {
+  /**
+   * @param song      the song to open
+   * @param opts.timeoutMs how long to wait for it, and opts.onSlow is called
+   *        part way so the person is told rather than left looking at nothing.
+   */
+  async open(song, opts = {}) {
     this.stopAll();
     this.song = song;
     this.mode = 'straight';
@@ -63,15 +68,26 @@ export class Player {
        load leaves the app sitting on "Opening that song…" with the play button
        greyed out and nothing to tell the person what went wrong — which is how
        "I couldn't get it to play" looks from the inside. */
+    /* HOW LONG TO WAIT IS NOT THE SAME ON EVERY MACHINE. A song on a Windows
+       disk is there or it is not; a song in OneDrive on a phone may not be on
+       the phone at all yet, and opening it starts a download over whatever
+       signal there is. Fifteen seconds is generous for a disk and far too
+       little for that, so the platform says. */
+    const waitMs = Number(opts.timeoutMs) > 0 ? Number(opts.timeoutMs) : 15000;
     await new Promise((resolve, reject) => {
-      const done = () => { clearTimeout(timer); resolve(); };
+      const done = () => { clearTimeout(timer); clearTimeout(slow); resolve(); };
       const timer = setTimeout(() => {
+        clearTimeout(slow);
         reject(new Error('The song took too long to open. It may be a format this '
           + 'app cannot read, or the file may be somewhere it cannot reach.'));
-      }, 15000);
+      }, waitMs);
+      /* Said part way rather than at the end. A person watching nothing happen
+         for forty seconds has already decided the app is broken. */
+      const slow = setTimeout(() => opts.onSlow?.(), Math.min(6000, waitMs / 2));
       el.addEventListener('loadedmetadata', done, { once: true });
       el.addEventListener('error', () => {
         clearTimeout(timer);
+        clearTimeout(slow);
         reject(new Error(mediaErrorText(el)));
       }, { once: true });
     });

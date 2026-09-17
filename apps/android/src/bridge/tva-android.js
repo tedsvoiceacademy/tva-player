@@ -165,7 +165,12 @@ function rememberSongs(songs) {
   const known = readJson(SONGS_KEY, []);
   const byUri = new Map(known.map((s) => [s.path, s]));
   for (const song of songs) byUri.set(song.path, song);
-  const all = [...byUri.values()].slice(-2000);
+  /* KEPT SHORT ON PURPOSE. Each song opened one at a time costs one of the
+     persisted permissions Android allows this app, and past its cap it refuses
+     them — so an old song would silently stop opening. A folder costs one
+     permission however much music is in it, which is why Add a folder is the
+     better way to keep a library. */
+  const all = [...byUri.values()].slice(-200);
   writeJson(SONGS_KEY, all);
   return all;
 }
@@ -336,29 +341,21 @@ const tva = {
     return { filePath: got.uri, format };
   },
   async exportCopy({ from, to }) {
-    try {
-      await Files.truncateDocument({ uri: to });
-      let at = 0;
-      for (;;) {
-        const part = await Takes.readRange({ path: from, start: at, length: 512 * 1024 });
-        const bytes = fromBase64(part?.base64 ?? '');
-        if (!bytes.length) break;
-        await Files.appendToDocument({ uri: to, base64: part.base64 });
-        at += bytes.length;
-        if (bytes.length < 512 * 1024) break;
-      }
-      return { path: to };
-    } catch (err) {
-      return { error: `That could not be saved. ${err?.message ?? err}` };
-    }
+    /* A take is already a file the app owns, so this is one copy across. */
+    const got = await Files.copyIntoDocument({ from, to });
+    return got?.written ? { path: to } : { error: got?.error ?? 'That could not be saved.' };
   },
   async exportOpen({ filePath }) {
     try {
-      /* Android's Save box may have been pointed at a file that already exists,
-         and appending to it would make nonsense of both. */
-      await Files.truncateDocument({ uri: filePath });
+      /* WRITTEN TO THE APP'S OWN STORAGE FIRST, then copied across when it is
+         finished. Appending straight into the chosen document is the obvious
+         way and it depends on a file mode a provider is allowed to refuse —
+         Google Drive's does — so a long take would encode perfectly and leave
+         an empty file behind. See Files.copyIntoDocument. */
+      const scratch = await Files.scratchFile();
+      if (!scratch?.path) return { error: 'There was nowhere to write the file.' };
       const id = nextExportId++;
-      openExports.set(id, { filePath, bytes: 0 });
+      openExports.set(id, { filePath, scratch: scratch.path, bytes: 0 });
       return { id };
     } catch (err) {
       return { error: `That file could not be opened for writing. ${err?.message ?? err}` };
@@ -368,7 +365,7 @@ const tva = {
     const job = openExports.get(id);
     if (!job) return false;
     try {
-      await Files.appendToDocument({ uri: job.filePath, base64: toBase64(new Uint8Array(bytes)) });
+      await Files.appendToScratch({ path: job.scratch, base64: toBase64(new Uint8Array(bytes)) });
       job.bytes += bytes.length ?? 0;
       return true;
     } catch { return false; }
@@ -377,12 +374,16 @@ const tva = {
     const job = openExports.get(id);
     if (!job) return null;
     openExports.delete(id);
+    const got = await Files.copyIntoDocument({ from: job.scratch, to: job.filePath });
+    await Files.removeScratch({ path: job.scratch }).catch(() => {});
+    if (!got?.written) return { error: got?.error ?? 'That could not be saved.' };
     return { path: job.filePath, bytes: job.bytes };
   },
   async exportAbort(id) {
     const job = openExports.get(id);
     if (!job) return false;
     openExports.delete(id);
+    await Files.removeScratch({ path: job.scratch }).catch(() => {});
     await Files.deleteDocument({ uri: job.filePath }).catch(() => {});
     return true;
   },
@@ -409,6 +410,38 @@ const tva = {
   async canKeepPlaying() {
     const answer = await Playback.canKeepPlaying();
     return Boolean(answer?.canKeepPlaying);
+  },
+
+  /* A song in OneDrive is not on the phone until something asks for it, and
+     what happens then is a download over whatever signal there is. Fifteen
+     seconds is generous for a disk and nowhere near enough for that. */
+  openTimeoutMs: 60000,
+
+  /* ---- why a song would not open ------------------------------------------
+   *
+   * A media element that cannot read a file says "no supported source" and
+   * nothing else, so the app could only say the song took too long — which
+   * names nothing and is exactly what Ted got. This asks the phone to walk the
+   * same three steps and turns the answer into a sentence. */
+  async whySongFailed(song) {
+    if (!song?.path) return null;
+    try {
+      const report = await Files.probeSong({ uri: song.path });
+      if (!report || report.step === 'ok') {
+        /* Everything the phone can check is fine, so the fault is the file
+           itself rather than reaching it. */
+        return report?.sizeForStreaming >= 0
+          ? 'The phone can read that file, so it is the format the app cannot play.'
+          : 'The phone can read that file but will not say how long it is, which '
+            + 'is usually a file that has not finished downloading. Open it once in '
+            + 'the OneDrive or Drive app so it is on the phone, then try again.';
+      }
+      const where = report.name ? ` (${report.name})` : '';
+      return `That song could not be opened${where}: ${report.step}.`
+        + (report.why && report.why !== 'null' ? ` The phone said: ${report.why}` : '');
+    } catch {
+      return null;
+    }
   },
 
   /* ---- sharing with the computer ---- */

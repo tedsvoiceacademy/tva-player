@@ -90,6 +90,26 @@ from there, with perhaps a slower button. That is the next piece of work, and it
 needs a second, native player inside the app for the car to drive, because the
 one in the page cannot run with the screen off.
 
+## If a song will not open
+
+The app now tells you which step failed rather than only that it took too long.
+Three things it may say, and what each means:
+
+- **"the file would not be read"** or **"the app is no longer allowed to read
+  that file"** — the permission to that file has lapsed. Open it again through
+  **Open a song**.
+- **"the phone can read that file but will not say how long it is"** — the file
+  is in OneDrive or Drive and has not been downloaded to the phone yet. Open it
+  once in the OneDrive or Drive app, then try again.
+- **"Still opening that song…"** — it is downloading. The app waits a minute for
+  a song from a phone, against fifteen seconds on Windows, because a song in
+  OneDrive is not on the phone until something asks for it.
+
+**Keep a lot of music in a folder, not one song at a time.** Android limits how
+many individual files an app may hold permission to. A folder costs one
+permission however much music is inside it; songs opened one at a time each cost
+their own, so the app keeps the last 200 of those.
+
 ## What has been checked, and what has not
 
 Checked, at 390 pixels, on every build: that the phone build answers everything
@@ -106,8 +126,17 @@ the marked part is there, then a part marked on the phone is read back out of th
 same file. The two machines are proved to agree on the file's name rather than
 assumed to.
 
+The song list is checked with forty songs in it, not an empty one — which is
+what hid the fault where **Open a song** ended up 2,168 pixels below the list.
+
+The decisions inside serving a song — which bytes to send, what to say about
+their length, what to do when the length is not known — now live in a plain Java
+class with no Android in it, and fourteen cases go through them on every build.
+That is the part that failed the first time and the only part of the Android code
+a build runner can run.
+
 **Not checked by any of that**, because none of it can exist on a build runner:
-Android's own document picker, a song streamed out of Drive, whether OneDrive's
-provider gives a folder that can be written to, and whether the phone really does
-leave the song playing when the screen goes off. Those four are the first things
-to try, and the Windows checklist lists them.
+Android's own document picker, a song streamed out of Drive or OneDrive, whether
+those providers give a folder that can be written to, and whether the phone
+really does leave the song playing when the screen goes off. Those four are the
+first things to try, and the Windows checklist lists them.

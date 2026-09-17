@@ -106,6 +106,14 @@ jobs:
       # something to install without a store in the way. Debug-signed, because a
       # release build needs a keystore and Android will not install an unsigned
       # one at all.
+      # THE ONE PART OF THE ANDROID CODE A BUILD RUNNER CAN RUN. Serving a song
+      # out of the phone's storage is what failed the first time Ted tried it,
+      # so the decisions inside it live in a plain Java class with no Android in
+      # it, and these put the awkward cases through them on every build.
+      - name: The Android logic that can be run without a phone
+        run: ./gradlew --no-daemon testDebugUnitTest
+        working-directory: apps/android/android
+
       - name: Build the app
         run: ./gradlew --no-daemon assembleDebug
         working-directory: apps/android/android

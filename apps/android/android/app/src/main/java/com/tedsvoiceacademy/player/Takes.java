@@ -49,7 +49,11 @@ public class Takes extends Plugin {
     }
 
     private File folder() {
-        File dir = new File(getContext().getExternalFilesDir(null), "Takes");
+        /* getExternalFilesDir returns null when external storage is not mounted
+           — rare on a modern phone and not impossible, and a null here is a
+           crash the moment anybody presses record. */
+        File base = getContext().getExternalFilesDir(null);
+        File dir = new File(base != null ? base : getContext().getFilesDir(), "Takes");
         if (!dir.exists()) dir.mkdirs();
         return dir;
     }

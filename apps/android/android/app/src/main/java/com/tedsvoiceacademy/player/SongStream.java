@@ -1,6 +1,7 @@
 package com.tedsvoiceacademy.player;
 
 import android.content.ContentResolver;
+import android.content.res.AssetFileDescriptor;
 import android.content.Context;
 import android.database.Cursor;
 import android.net.Uri;
@@ -65,35 +66,22 @@ public class SongStream extends BridgeWebViewClient {
             return refuse(400, "Bad Request");
         }
 
-        long total = sizeOf(target);
-        String range = header(request, "Range");
-        long start = 0;
-        long end = total > 0 ? total - 1 : -1;
-        boolean partial = false;
+        long total = sizeOf(context, target);
+        Ranges.Plan plan = Ranges.plan(header(request, "Range"), total);
 
-        if (range != null && range.startsWith("bytes=")) {
-            String[] parts = range.substring(6).split("-", 2);
-            try {
-                if (!parts[0].isEmpty()) start = Long.parseLong(parts[0].trim());
-                if (parts.length > 1 && !parts[1].trim().isEmpty()) {
-                    long asked_ = Long.parseLong(parts[1].trim());
-                    if (total > 0) end = Math.min(asked_, total - 1); else end = asked_;
-                }
-                partial = true;
-            } catch (NumberFormatException ignored) {
-                partial = false;
-                start = 0;
-                end = total > 0 ? total - 1 : -1;
-            }
+        if (plan.status == 416) {
+            WebResourceResponse refused = refuse(416, "Range Not Satisfiable");
+            Map<String, String> headers = new HashMap<>();
+            headers.put("Content-Range", plan.contentRange);
+            refused.setResponseHeaders(headers);
+            return refused;
         }
-        if (total > 0 && start >= total) return refuse(416, "Range Not Satisfiable");
 
         try {
-            ContentResolver resolver = context.getContentResolver();
-            InputStream raw = resolver.openInputStream(target);
+            InputStream raw = context.getContentResolver().openInputStream(target);
             if (raw == null) return refuse(404, "Not Found");
-            InputStream body = start > 0 || end >= 0
-                ? new Slice(raw, start, end >= 0 ? end - start + 1 : Long.MAX_VALUE)
+            InputStream body = plan.slices()
+                ? new Slice(raw, plan.start, plan.end >= 0 ? plan.end - plan.start + 1 : Long.MAX_VALUE)
                 : raw;
 
             Map<String, String> headers = new HashMap<>();
@@ -106,16 +94,14 @@ public class SongStream extends BridgeWebViewClient {
                The song would appear to play with the clock running and nothing
                audible, which is a fault the Windows app met once already. */
             headers.put("Access-Control-Allow-Origin", "*");
-            if (end >= 0) headers.put("Content-Length", String.valueOf(end - start + 1));
-            if (partial && total > 0) {
-                headers.put("Content-Range", "bytes " + start + "-" + end + "/" + total);
-            }
+            if (plan.contentLength >= 0) headers.put("Content-Length", String.valueOf(plan.contentLength));
+            if (plan.contentRange != null) headers.put("Content-Range", plan.contentRange);
 
             WebResourceResponse response = new WebResourceResponse(
-                mimeOf(target), null, body);
+                Ranges.mimeForName(nameOf(context, target)), null, body);
             response.setResponseHeaders(headers);
-            response.setStatusCodeAndReasonPhrase(partial ? 206 : 200,
-                partial ? "Partial Content" : "OK");
+            response.setStatusCodeAndReasonPhrase(plan.status,
+                plan.status == 206 ? "Partial Content" : "OK");
             return response;
         } catch (Exception err) {
             return refuse(404, "Not Found");
@@ -139,7 +125,26 @@ public class SongStream extends BridgeWebViewClient {
         return response;
     }
 
-    private long sizeOf(Uri uri) {
+    /**
+     * How long the file is, asked the most dependable way first.
+     *
+     * THE WHOLE THING TURNS ON THIS NUMBER. With it, the song can be seeked and
+     * its duration is known; without it the app can only stream from the start.
+     * So it is asked twice, differently: the file descriptor is what a provider
+     * opens to hand the bytes over and it nearly always knows the length, while
+     * the SIZE column is only as good as what the provider chose to put in its
+     * database — and for a file in OneDrive or Drive that can be nothing at all.
+     */
+    static long sizeOf(Context context, Uri uri) {
+        try (AssetFileDescriptor fd = context.getContentResolver().openAssetFileDescriptor(uri, "r")) {
+            if (fd != null) {
+                long length = fd.getLength();
+                if (length >= 0 && length != AssetFileDescriptor.UNKNOWN_LENGTH) return length;
+            }
+        } catch (Exception ignored) {
+            /* A provider that will not open a descriptor. The column is tried
+               next rather than this being the end of it. */
+        }
         try (Cursor cursor = context.getContentResolver().query(uri, null, null, null, null)) {
             if (cursor != null && cursor.moveToFirst()) {
                 int at = cursor.getColumnIndex(DocumentsContract.Document.COLUMN_SIZE);
@@ -149,15 +154,15 @@ public class SongStream extends BridgeWebViewClient {
         return -1;
     }
 
-    private String mimeOf(Uri uri) {
-        String name = uri.toString().toLowerCase();
-        if (name.endsWith(".mp3")) return "audio/mpeg";
-        if (name.endsWith(".m4a") || name.endsWith(".aac")) return "audio/mp4";
-        if (name.endsWith(".wav")) return "audio/wav";
-        if (name.endsWith(".flac")) return "audio/flac";
-        if (name.endsWith(".ogg") || name.endsWith(".oga") || name.endsWith(".opus")) return "audio/ogg";
-        String given = context.getContentResolver().getType(uri);
-        return given != null ? given : "audio/mpeg";
+    static String nameOf(Context context, Uri uri) {
+        try (Cursor cursor = context.getContentResolver().query(uri, null, null, null, null)) {
+            if (cursor != null && cursor.moveToFirst()) {
+                int at = cursor.getColumnIndex(DocumentsContract.Document.COLUMN_DISPLAY_NAME);
+                if (at >= 0 && !cursor.isNull(at)) return cursor.getString(at);
+            }
+        } catch (Exception ignored) { /* fall back to the URI's own tail */ }
+        String tail = uri.getLastPathSegment();
+        return tail == null ? "" : tail;
     }
 
     /** One window of a stream: skip to the start, stop after the length. */

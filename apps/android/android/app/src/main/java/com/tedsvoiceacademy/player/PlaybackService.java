@@ -13,6 +13,7 @@ import android.media.AudioManager;
 import android.os.Build;
 import android.os.IBinder;
 import android.os.PowerManager;
+import android.support.v4.media.MediaMetadataCompat;
 import android.support.v4.media.session.MediaSessionCompat;
 import android.support.v4.media.session.PlaybackStateCompat;
 
@@ -106,6 +107,17 @@ public class PlaybackService extends Service {
            Android kills the app with a ForegroundServiceDidNotStartInTimeException
            — so it happens here, on every start, before anything else. */
         startForeground(NOTIFICATION, notification(title, playing));
+
+        /* WHAT THE LOCK SCREEN READS. The notification's own title is not what
+           the lock screen and the car show — they read the session's metadata,
+           and without it the song appears there as nothing at all. */
+        session.setMetadata(new MediaMetadataCompat.Builder()
+            .putString(MediaMetadataCompat.METADATA_KEY_TITLE,
+                title == null || title.isEmpty() ? "TVA Player" : title)
+            .putString(MediaMetadataCompat.METADATA_KEY_ARTIST, "TVA Player")
+            .putLong(MediaMetadataCompat.METADATA_KEY_DURATION,
+                intent != null ? intent.getLongExtra("durationMs", -1) : -1)
+            .build());
 
         session.setPlaybackState(new PlaybackStateCompat.Builder()
             .setActions(PlaybackStateCompat.ACTION_PLAY | PlaybackStateCompat.ACTION_PAUSE

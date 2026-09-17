@@ -87,6 +87,7 @@ public class Playback extends Plugin {
         intent.putExtra("playing", playing);
         intent.putExtra("title", call.getString("title", "TVA Player"));
         intent.putExtra("positionMs", (long) (call.getDouble("positionSec", 0d) * 1000));
+        intent.putExtra("durationMs", (long) (call.getDouble("durationSec", -0.001d) * 1000));
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             getContext().startForegroundService(intent);
         } else {

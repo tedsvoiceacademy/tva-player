@@ -552,6 +552,63 @@ try {
     await page.evaluate(() => window.tva.stopSharing());
   }
 
+  console.log('\n--- with a real number of songs in it ---');
+  {
+    /* THE FAULT TED HIT, and the one every check here had missed because they
+       ran against an empty library. On Windows the song list is a fixed side
+       column: the list scrolls inside it and "Open a song" is pinned at its
+       foot. Moved into a tab on a phone, that scrolling went with it — and with
+       forty songs the button was 2,168 pixels down, below every one of them,
+       seven screens into a panel 243 pixels tall. "I couldn't scroll to the song
+       upload."
+       So the library is seeded and the page reloaded, which is the only way to
+       meet the app the way he met it. */
+    await page.evaluate(() => {
+      const songs = [];
+      for (let i = 1; i <= 40; i++) {
+        songs.push({ path: `content://seeded/${i}`, name: `Practice track number ${i}.mp3`,
+          size: 1000 + i, songKey: `practice track number ${i}.mp3::${1000 + i}`,
+          url: 'about:blank', root: null });
+      }
+      localStorage.setItem('tva.songs', JSON.stringify(songs));
+    });
+    await page.reload();
+    await page.waitForTimeout(1500);
+    await page.click('.tab[data-tab="songs"]');
+    await page.waitForTimeout(400);
+
+    const reach = await page.evaluate(() => {
+      const open = document.getElementById('open').getBoundingClientRect();
+      return {
+        rows: document.querySelectorAll('.song').length,
+        top: Math.round(open.top), bottom: Math.round(open.bottom),
+        window: window.innerHeight,
+      };
+    });
+    check('the song list really fills up', reach.rows >= 40, `${reach.rows} songs listed`);
+    check('and Open a song is on the screen the moment the tab opens, with no scrolling',
+      reach.top >= 0 && reach.bottom <= reach.window,
+      `the button sits at ${reach.top}..${reach.bottom} of ${reach.window}`);
+
+    const search = await page.evaluate(() => {
+      const box = document.getElementById('find').getBoundingClientRect();
+      return { top: Math.round(box.top), bottom: Math.round(box.bottom), window: window.innerHeight };
+    });
+    check('and so is the search box, which is how a long list gets short',
+      search.top >= 0 && search.bottom <= search.window,
+      `search sits at ${search.top}..${search.bottom}`);
+
+    /* A hidden label with nowhere to be is not nothing: absolutely positioned
+       with no top or left, it went wherever the reordered page left it — which
+       was past the bottom, adding 29 pixels of scroll to a page that is supposed
+       to hold still. */
+    check('and nothing invisible is hanging off the bottom of the page',
+      await page.evaluate(() =>
+        document.documentElement.scrollHeight <= window.innerHeight + 1),
+      `page is ${await page.evaluate(() => document.documentElement.scrollHeight)} tall `
+      + `in a ${await page.evaluate(() => window.innerHeight)} window`);
+  }
+
   console.log('\n--- how it looks ---');
   {
     await page.click('.tab[data-tab="set-up"]').catch(async () => {

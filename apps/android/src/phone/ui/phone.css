@@ -109,6 +109,24 @@
   .deskwrap { overflow-y: auto; padding: 0 10px 12px; }
   .desk, .desk.wide1 { grid-template-columns: 1fr; gap: 10px; }
 
+  /* THE BUTTON YOU CAME FOR GOES FIRST.
+   *
+   * On Windows the song list is a fixed side column: the list scrolls inside it
+   * and "Open a song" is pinned at its foot, always in view. Moved into a tab on
+   * a phone, the column's own scrolling went with it — and with forty songs in
+   * the list the button ended up 2,168 pixels down, below every one of them,
+   * seven screens into a panel 243 pixels tall. Ted: "I couldn't scroll to the
+   * song upload."
+   *
+   * Nothing is moved in the page itself; the rail is a flex column, so this
+   * lifts its footer to the top of it for phones only. The search box goes with
+   * it, because narrowing a long list is the other thing you arrive wanting. */
+  .rail { gap: 9px; }
+  .railfoot { order: -10; }
+  .railtop { order: -9; }
+  .find { order: -8; }
+  .railfoot .dropnote { margin: 4px 0 0; }
+
   /* ---- lists and rows ---- */
   .item { gap: 8px; padding: 10px 0; }
   .itext { flex: 1 1 100%; min-width: 0; }

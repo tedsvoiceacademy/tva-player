@@ -18,6 +18,7 @@ import com.getcapacitor.annotation.ActivityCallback;
 import com.getcapacitor.annotation.CapacitorPlugin;
 
 import java.io.ByteArrayOutputStream;
+import java.io.File;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.util.ArrayList;
@@ -242,20 +243,80 @@ public class Files extends Plugin {
     }
 
     /**
-     * Add bytes to a document the person chose.
+     * Put a whole file into the document the person chose.
      *
-     * "wa" rather than "w": a forty-five minute lesson is written in pieces, and
-     * re-opening in "w" for each piece would truncate the file every time —
-     * leaving a saved take that is only ever as long as its last slice.
+     * WRITTEN ONCE, FROM A FILE THE APP OWNS. The obvious way is to open the
+     * chosen document in append mode and add each lump of the MP3 as it is
+     * encoded — and "wa" is a mode a DocumentsProvider is allowed not to
+     * support. Google Drive's does not. So a forty-five minute take would
+     * encode perfectly, report "Saved as…", and leave an empty file behind on
+     * exactly the providers Ted keeps his music in.
+     *
+     * Instead the export is written to the app's own storage, where it is an
+     * ordinary file and nothing can refuse anything, and copied across in one
+     * "w" stream at the end. Every provider supports that. The cost is the same
+     * number of bytes twice on disk, briefly.
      */
     @PluginMethod
-    public void appendToDocument(PluginCall call) {
-        String uri = call.getString("uri", "");
-        String base64 = call.getString("base64", "");
-        if (uri == null || uri.isEmpty()) { call.reject("No file was named."); return; }
-        try (OutputStream out = getContext().getContentResolver().openOutputStream(Uri.parse(uri), "wa")) {
-            if (out == null) { call.reject("That file could not be written to."); return; }
-            out.write(Base64.decode(base64, Base64.NO_WRAP));
+    public void copyIntoDocument(PluginCall call) {
+        String from = call.getString("from", "");
+        String to = call.getString("to", "");
+        if (from == null || from.isEmpty() || to == null || to.isEmpty()) {
+            call.resolve(new JSObject().put("written", false).put("error", "No file was named."));
+            return;
+        }
+        File source = new File(from);
+        if (!source.isFile()) {
+            call.resolve(new JSObject().put("written", false).put("error", "There is nothing to save."));
+            return;
+        }
+        try (InputStream in = new java.io.FileInputStream(source);
+             OutputStream out = getContext().getContentResolver().openOutputStream(Uri.parse(to), "w")) {
+            if (out == null) {
+                call.resolve(new JSObject().put("written", false).put("error", "That place is read-only."));
+                return;
+            }
+            byte[] buffer = new byte[256 * 1024];
+            long written = 0;
+            for (int read = in.read(buffer); read >= 0; read = in.read(buffer)) {
+                out.write(buffer, 0, read);
+                written += read;
+            }
+            out.flush();
+            call.resolve(new JSObject().put("written", true).put("bytes", written));
+        } catch (Exception err) {
+            call.resolve(new JSObject().put("written", false).put("error", String.valueOf(err.getMessage())));
+        }
+    }
+
+    /** A scratch file in the app's own storage, for an export being written. */
+    @PluginMethod
+    public void scratchFile(PluginCall call) {
+        File dir = new File(scratchDir(), "exports");
+        dir.mkdirs();
+        File file = new File(dir, "export-" + System.currentTimeMillis() + ".part");
+        try {
+            for (File old : dir.listFiles() == null ? new File[0] : dir.listFiles()) {
+                /* Anything left by an export that was abandoned when the app was
+                   killed. An hour old is long past any export still running. */
+                if (old.lastModified() < System.currentTimeMillis() - 3600_000L) old.delete();
+            }
+            file.createNewFile();
+            call.resolve(new JSObject().put("path", file.getAbsolutePath()));
+        } catch (Exception err) {
+            call.reject("Nowhere to write the file. " + err.getMessage());
+        }
+    }
+
+    @PluginMethod
+    public void appendToScratch(PluginCall call) {
+        File file = new File(call.getString("path", ""));
+        if (!file.getAbsolutePath().startsWith(scratchDir().getAbsolutePath())) {
+            call.reject("That is not one of this app's files.");
+            return;
+        }
+        try (OutputStream out = new java.io.FileOutputStream(file, true)) {
+            out.write(Base64.decode(call.getString("base64", ""), Base64.NO_WRAP));
             call.resolve();
         } catch (Exception err) {
             call.reject("That file could not be written. " + err.getMessage());
@@ -263,15 +324,15 @@ public class Files extends Plugin {
     }
 
     @PluginMethod
-    public void truncateDocument(PluginCall call) {
-        String uri = call.getString("uri", "");
-        if (uri == null || uri.isEmpty()) { call.reject("No file was named."); return; }
-        try (OutputStream out = getContext().getContentResolver().openOutputStream(Uri.parse(uri), "wt")) {
-            if (out != null) out.flush();
-            call.resolve();
-        } catch (Exception err) {
-            call.reject("That file could not be emptied. " + err.getMessage());
-        }
+    public void removeScratch(PluginCall call) {
+        File file = new File(call.getString("path", ""));
+        if (file.getAbsolutePath().startsWith(scratchDir().getAbsolutePath())) file.delete();
+        call.resolve();
+    }
+
+    private File scratchDir() {
+        File external = getContext().getExternalFilesDir(null);
+        return external != null ? external : getContext().getFilesDir();
     }
 
     @PluginMethod
@@ -283,9 +344,14 @@ public class Files extends Plugin {
         call.resolve();
     }
 
-    /* Hold on to it, so a song picked today still opens next week. The system
-       caps how many a single app may keep, so the oldest is let go rather than
-       the newest being silently refused. */
+    /* Hold on to it, so a song picked today still opens next week.
+     *
+     * ANDROID CAPS HOW MANY OF THESE AN APP MAY HOLD — a few hundred — and past
+     * the cap it simply refuses. A folder costs ONE grant however many songs are
+     * inside it, because everything under a picked folder is reached through the
+     * folder's own permission; it is songs picked one at a time that accumulate.
+     * So the list of individually opened songs is kept short, in the bridge, and
+     * a folder is the better way to keep a lot of music. */
     private void keep(Uri uri) {
         try {
             getContext().getContentResolver().takePersistableUriPermission(
@@ -370,16 +436,34 @@ public class Files extends Plugin {
             Uri file = findInTree(Uri.parse(treeUri), wanted, true);
             if (file == null) { call.resolve(new JSObject().put("written", false)
                 .put("error", "That folder would not take a new file.")); return; }
-            /* "wt" truncates. A settings file written over a longer one without
-               it keeps the tail of the old one and comes back as broken JSON. */
-            try (OutputStream out = getContext().getContentResolver().openOutputStream(file, "wt")) {
-                if (out == null) { call.resolve(new JSObject().put("written", false)
-                    .put("error", "That folder is read-only.")); return; }
-                out.write(Base64.decode(base64, Base64.NO_WRAP));
+            /* "wt" TRUNCATES, and a provider is allowed not to support it. Left
+               alone, a settings file written over a longer one keeps the tail of
+               the old one and comes back as broken JSON — so when the mode is
+               refused the document is deleted and made again, which every
+               provider does support. */
+            byte[] bytes = Base64.decode(base64, Base64.NO_WRAP);
+            if (!writeWhole(file, bytes, "wt")) {
+                DocumentsContract.deleteDocument(getContext().getContentResolver(), file);
+                Uri again = findInTree(Uri.parse(treeUri), wanted, true);
+                if (again == null || !writeWhole(again, bytes, "w")) {
+                    call.resolve(new JSObject().put("written", false)
+                        .put("error", "That folder would not take the file.")); return;
+                }
             }
             call.resolve(new JSObject().put("written", true));
         } catch (Exception err) {
             call.resolve(new JSObject().put("written", false).put("error", String.valueOf(err.getMessage())));
+        }
+    }
+
+    private boolean writeWhole(Uri file, byte[] bytes, String mode) {
+        try (OutputStream out = getContext().getContentResolver().openOutputStream(file, mode)) {
+            if (out == null) return false;
+            out.write(bytes);
+            out.flush();
+            return true;
+        } catch (Exception refused) {
+            return false;
         }
     }
 
@@ -390,9 +474,9 @@ public class Files extends Plugin {
         try {
             Uri probe = findInTree(Uri.parse(treeUri), "tva-write-test.tmp", true);
             if (probe == null) { call.resolve(new JSObject().put("writable", false)); return; }
-            try (OutputStream out = getContext().getContentResolver().openOutputStream(probe, "wt")) {
-                if (out == null) { call.resolve(new JSObject().put("writable", false)); return; }
-                out.write(new byte[] { 'o', 'k' });
+            if (!writeWhole(probe, new byte[] { 'o', 'k' }, "w")) {
+                call.resolve(new JSObject().put("writable", false));
+                return;
             }
             DocumentsContract.deleteDocument(getContext().getContentResolver(), probe);
             call.resolve(new JSObject().put("writable", true));
@@ -438,5 +522,58 @@ public class Files extends Plugin {
             }
         } catch (Exception ignored) { /* a provider that has gone away */ }
         return null;
+    }
+
+    /**
+     * Why a song would not open, in enough detail to name the step that failed.
+     *
+     * A media element that cannot read a file says "no supported source" and
+     * nothing else, and the app on top of it can only say the song took too long
+     * — which is what Ted got, and which names nothing. This walks the same
+     * three steps the player depends on and reports each: can the file be
+     * described, does it have a length, and do bytes actually come out of it.
+     * One round instead of five.
+     */
+    @PluginMethod
+    public void probeSong(PluginCall call) {
+        String uriText = call.getString("uri", "");
+        JSObject report = new JSObject();
+        report.put("uri", uriText);
+        if (uriText == null || uriText.isEmpty()) { call.resolve(report.put("step", "no file was named")); return; }
+        Uri uri = Uri.parse(uriText);
+
+        long began = System.currentTimeMillis();
+        try {
+            JSObject described = describe(uri);
+            report.put("name", described.getString("name"));
+            report.put("sizeFromProvider", described.opt("size"));
+        } catch (Exception err) {
+            report.put("step", "the phone would not describe the file");
+            report.put("why", String.valueOf(err.getMessage()));
+            call.resolve(report);
+            return;
+        }
+
+        report.put("sizeForStreaming", SongStream.sizeOf(getContext(), uri));
+
+        try (InputStream in = getContext().getContentResolver().openInputStream(uri)) {
+            if (in == null) {
+                report.put("step", "the file could not be opened for reading");
+                call.resolve(report);
+                return;
+            }
+            byte[] buffer = new byte[64 * 1024];
+            int read = in.read(buffer);
+            report.put("bytesRead", Math.max(0, read));
+            report.put("step", read > 0 ? "ok" : "the file opened but gave no bytes");
+        } catch (SecurityException noPermission) {
+            report.put("step", "the app is no longer allowed to read that file");
+            report.put("why", String.valueOf(noPermission.getMessage()));
+        } catch (Exception err) {
+            report.put("step", "the file would not be read");
+            report.put("why", String.valueOf(err.getMessage()));
+        }
+        report.put("tookMs", System.currentTimeMillis() - began);
+        call.resolve(report);
     }
 }

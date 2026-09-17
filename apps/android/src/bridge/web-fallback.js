@@ -18,6 +18,7 @@ const takes = new Map();        // path -> { parts, sampleRate, channels, name, 
 const openTakes = new Map();    // key -> path
 const documents = new Map();    // uri -> Uint8Array[]
 const tree = new Map();         // path inside the shared folder -> bytes
+const scratches = new Map();    // scratch path -> byte arrays being gathered
 
 /* The checks act as the other machine through these two. */
 export function seedSharedFile(path, text) { tree.set(path, new TextEncoder().encode(text)); }
@@ -102,16 +103,35 @@ export const FilesWeb = {
     if (!file) return { base64: '' };
     return { base64: toBase64(await bytesOf(file, start, length)) };
   },
+  /* Nothing to add in a browser: the picker handed over a real file, so a
+     failure here is the file, not the reaching of it. */
+  async probeSong() { return { step: 'ok', sizeForStreaming: 0 }; },
   async createDocument({ name }) {
     const uri = `doc:${nextId++}:${name}`;
     documents.set(uri, []);
     return { uri };
   },
-  async appendToDocument({ uri, base64 }) {
-    const held = documents.get(uri);
+  /* The scratch file an export is written to before it is copied across. In a
+     browser it is a list of byte arrays; on the phone it is a real file in the
+     app's own storage. Same three steps either way. */
+  async scratchFile() {
+    const path = `scratch:${nextId++}`;
+    scratches.set(path, []);
+    return { path };
+  },
+  async appendToScratch({ path, base64 }) {
+    const held = scratches.get(path);
     if (held) held.push(fromBase64(base64));
   },
-  async truncateDocument({ uri }) { documents.set(uri, []); },
+  async removeScratch({ path }) { scratches.delete(path); },
+  async copyIntoDocument({ from, to }) {
+    const held = scratches.get(from) ?? (takeBlob(from) ? [new Uint8Array(await takeBlob(from).arrayBuffer())] : null);
+    if (!held) return { written: false, error: 'There is nothing to save.' };
+    documents.set(to, held.slice());
+    let bytes = 0;
+    for (const part of held) bytes += part.length;
+    return { written: true, bytes };
+  },
   async deleteDocument({ uri }) { documents.delete(uri); },
 };
 

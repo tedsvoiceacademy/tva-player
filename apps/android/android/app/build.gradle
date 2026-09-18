@@ -16,8 +16,35 @@ android {
             ignoreAssetsPattern '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
         }
     }
+    /* ONE KEY, FOR EVER, KEPT IN THE REPO.
+     *
+     * Android will not install a build over a copy signed by a different key.
+     * It refuses with "Installation cancelled" and no reason given, which is
+     * exactly what Ted saw, and it happened because there was no key here at
+     * all: left to itself the Android build makes a throwaway key on whatever
+     * machine it is running on, and a build runner is a fresh machine every
+     * time. So every build was signed by a stranger to the one before it, and
+     * no build could ever update the last one. The app worked perfectly and
+     * could not be installed.
+     *
+     * This is a DEBUG key, on purpose, with the passwords Android itself uses
+     * for debug keys. It is in the repo because the alternative is Ted
+     * uninstalling the app before every update and losing his settings with it.
+     * What it protects: nothing. What it does: makes this app the same app from
+     * one build to the next, which is the whole of what Android is asking for.
+     * A store release would need a real key, kept out of here.
+     */
+    signingConfigs {
+        debug {
+            storeFile file('../tva-debug.keystore')
+            storePassword 'android'
+            keyAlias 'androiddebugkey'
+            keyPassword 'android'
+        }
+    }
     buildTypes {
         debug {
+            signingConfig signingConfigs.debug
             /* Said out loud rather than left to the default, because a check
                depends on it: WebView reads its command-line file only for a
                debuggable app or on a userdebug device, and that file is how the

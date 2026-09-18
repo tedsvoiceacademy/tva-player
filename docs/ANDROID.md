@@ -77,6 +77,27 @@ permission to show a notification the first time you press play.** The
 notification is not decoration: it is what makes the phone leave the song alone.
 Refuse it and the app says so, and the song will stop when the screen does.
 
+## "Installation cancelled", once
+
+If the phone refuses the app with **Installation cancelled** and no reason, it is
+almost certainly this: Android will not install a build signed by a different key
+than the copy already on the phone, and for a while every build here was signed
+by a different key. There was no signing key in the project, so the Android build
+made a throwaway one on whatever machine was building — and a build runner is a
+fresh machine every time. The app was fine. It simply could not be installed over
+itself.
+
+**The one-time fix:** uninstall TVA Player from the phone, then install the
+download again. Loops, notes and named parts live in the shared folder rather
+than inside the app, so what is in there survives an uninstall.
+
+It will not happen again. The key is now committed at
+`apps/android/android/tva-debug.keystore` and every build is signed with it, and
+the build checks the finished APK really carries that key before it will publish.
+It is a debug key with Android's own debug passwords, in the repo on purpose: it
+protects nothing, and it is what makes this app the same app from one build to
+the next. A store release would need a real key kept somewhere else.
+
 ## Recording on the phone
 
 The first time you press **Record new** or **Overdub**, Android asks whether to

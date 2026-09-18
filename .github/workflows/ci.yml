@@ -118,6 +118,36 @@ jobs:
         run: ./gradlew --no-daemon assembleDebug
         working-directory: apps/android/android
 
+      # AN APP ANDROID WILL LET HIM INSTALL OVER THE LAST ONE.
+      #
+      # Android refuses a build signed by a different key than the copy already
+      # on the phone, and it refuses with "Installation cancelled" and no reason
+      # given. That is what Ted got, because there was no key in the project at
+      # all: the Android build then makes a throwaway one on whatever machine is
+      # running, and a build runner is a fresh machine every time. Every build
+      # was a stranger to the one before it. The app was perfect and uninstallable.
+      #
+      # So the key is now committed, and this proves the APK really carries it.
+      # A check on the app's own behaviour could never have caught this, because
+      # nothing about the app was wrong.
+      - name: The app is signed with the one key that can update the last one
+        working-directory: apps/android/android
+        run: |
+          EXPECT=63d5f4bdfb9a24d94619b957a324e1e774ab4f5fff7803eeabb3d622448f3bbc
+          SDK="${ANDROID_SDK_ROOT:-$ANDROID_HOME}"
+          APKSIGNER=$(ls "$SDK"/build-tools/*/apksigner | sort | tail -1)
+          GOT=$("$APKSIGNER" verify --print-certs app/build/outputs/apk/debug/app-debug.apk \
+            | sed -n 's/.*certificate SHA-256 digest: //p' | head -1)
+          echo "signed by $GOT"
+          if [ "$GOT" != "$EXPECT" ]; then
+            echo "FAIL the app is signed by a key Ted's phone has never seen."
+            echo "     It will refuse to install over the copy he already has, and it"
+            echo "     will say 'Installation cancelled' without saying why."
+            echo "     expected $EXPECT"
+            exit 1
+          fi
+          echo "ok   it will install over the copy already on the phone"
+
       - name: Attach it to this run
         uses: actions/upload-artifact@v4
         with:

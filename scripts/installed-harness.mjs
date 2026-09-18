@@ -332,6 +332,75 @@ try {
     stretched.peak > 0.05 && Math.abs(stretched.hz - 493.9) < 20,
     stretched.error ?? `${stretched.hz?.toFixed(1)} Hz against a wanted 493.9`);
 
+  console.log('\n--- changing the speed on a song that is playing ---');
+  {
+    /* THE FAULT TED HIT, ON THE COPY HE ACTUALLY RUNS.
+     *
+     * "if i changed speed, no longer would it play until I completely close it
+     * down from task manager again." The check above proves the engine LOADS
+     * out of the package. It does not prove that reaching for the speed knob
+     * mid-song leaves the song playing — and that is the part that broke.
+     *
+     * Judged by the player's state rather than by the clock: an unwatched
+     * window has its timers throttled, so the clock freezes and catches up in
+     * jumps, and a check built on it accuses the app of faults it does not
+     * have. What broke was the state — song paused, no engine, nothing said. */
+    const state = () => page.evaluate(() => ({
+      mode: window.__tvaMode?.(),
+      speed: window.__tvaSpeed?.(),
+      playing: document.getElementById('play').getAttribute('aria-label') === 'Pause',
+      msg: document.getElementById('msg').textContent ?? '',
+    }));
+
+    await page.evaluate(() => window.__tvaSeek?.(0));
+    if ((await page.getAttribute('#play', 'aria-label')) === 'Play') await page.click('#play');
+    await page.waitForTimeout(500);
+    check('a song is playing before the speed is touched', (await state()).playing);
+
+    await page.evaluate(() => {
+      const el = document.getElementById('speed');
+      el.value = '80';
+      el.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    await page.waitForFunction(
+      () => window.__tvaMode && window.__tvaMode() === 'practice', { timeout: 30000 }).catch(() => {});
+    await page.waitForTimeout(600);
+    const slowed = await state();
+    check('changing the speed leaves it on a working engine', slowed.mode === 'practice',
+      `mode is ${slowed.mode}`);
+    check('and the song is still playing afterwards', slowed.playing,
+      `transport says ${slowed.playing ? 'Pause' : 'Play'}, message: ${slowed.msg}`);
+
+    /* AND WHEN THE ENGINE CANNOT START AT ALL. Switching engines pauses the song
+       before it does anything else, so a failure part-way took the sound away,
+       said nothing, and left a state no button could undo. */
+    await page.dblclick('.knob[data-knob="speed"]').catch(() => {});
+    await page.dblclick('.knob[data-knob="key"]').catch(() => {});
+    await page.evaluate(async () => { await window.__tvaOpenFirstArg(); });
+    await page.waitForFunction(
+      () => window.__tvaMode && window.__tvaMode() === 'straight', { timeout: 20000 });
+    await page.evaluate(() => window.__tvaSeek?.(0));
+    if ((await page.getAttribute('#play', 'aria-label')) === 'Play') await page.click('#play');
+    await page.waitForTimeout(600);
+
+    await page.evaluate(() => {
+      window.__tvaFailEngineOnce();
+      const el = document.getElementById('speed');
+      el.value = '70';
+      el.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    await page.waitForTimeout(2000);
+    const after = await state();
+    check('a speed control that cannot start says so',
+      /would not start|could not start/i.test(after.msg), after.msg);
+    check('and the song is never left paused by it', after.playing,
+      `transport says ${after.playing ? 'Pause' : 'Play'}`);
+    check('and the player is back on an engine it can play from',
+      after.mode === 'straight', `mode is ${after.mode}`);
+
+    await page.dblclick('.knob[data-knob="speed"]').catch(() => {});
+  }
+
   console.log('\n--- recording, from inside the package ---');
   /* The worklet is a separate file loaded by URL, which is the other thing an
      archive can break. */

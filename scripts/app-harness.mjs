@@ -277,6 +277,130 @@ try {
       `engine is at ${await page.evaluate(() => window.__tvaSpeed?.())}`);
   }
 
+  console.log('\n--- the speed control, and what it leaves behind ---');
+  {
+    /* TED'S OWN SEQUENCE, AND THE CHECK THAT WAS MISSING.
+     *
+     * "if i changed speed, no longer would it play until I completely close it
+     * down from task manager again". Every speed check above this one asks what
+     * the SETTING is — the readout says 60%, the engine reports 0.6 — and every
+     * one of them was green while the music stopped. The number changing and the
+     * sound continuing are two different claims, and only the first was checked.
+     *
+     * NOT MEASURED BY THE CLOCK. A window nothing is looking at gets its timers
+     * throttled, so the clock freezes and catches up in jumps, and a check built
+     * on it accuses the app of faults it does not have. What IS reliable, and is
+     * what actually broke, is the state the control leaves the player in: which
+     * engine it is on, whether an engine exists, and whether the transport still
+     * believes it is playing. Ted's fault left the song paused, no engine, the
+     * mode unchanged and not a word said. */
+    const state = () => page.evaluate(() => ({
+      mode: window.__tvaMode?.(),
+      speed: window.__tvaSpeed?.(),
+      engines: window.__tvaEngineStarts?.(),
+      playing: document.getElementById('play').getAttribute('aria-label') === 'Pause',
+      msg: document.getElementById('msg').textContent ?? '',
+    }));
+
+    await page.dblclick('.knob[data-knob="speed"]').catch(() => {});
+    await page.evaluate(() => window.__tvaSeek?.(0));
+    if ((await page.getAttribute('#play', 'aria-label')) === 'Play') await page.click('#play');
+    await page.waitForTimeout(500);
+    const playing = await state();
+    check('a song is playing before the speed is touched', playing.playing,
+      `transport says ${playing.playing ? 'Pause' : 'Play'}`);
+
+    await page.evaluate(() => {
+      const el = document.getElementById('speed');
+      el.value = '80';
+      el.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    await page.waitForFunction(
+      () => window.__tvaMode && window.__tvaMode() === 'practice', { timeout: 25000 }).catch(() => {});
+    await page.waitForTimeout(500);
+    const slowed = await state();
+    check('changing the speed leaves it on a working engine', slowed.mode === 'practice',
+      `mode is ${slowed.mode}`);
+    check('and the transport still believes it is playing', slowed.playing,
+      `transport says ${slowed.playing ? 'Pause' : 'Play'}, message: ${slowed.msg}`);
+
+    /* AND AGAIN, because a switch that survives once and dies on the second
+       change is the same fault with a longer fuse. */
+    await page.evaluate(() => {
+      const el = document.getElementById('key');
+      el.value = '2';
+      el.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    await page.waitForTimeout(800);
+    const keyed = await state();
+    check('and changing the key on top of it changes nothing for the worse',
+      keyed.mode === 'practice' && keyed.playing,
+      `mode ${keyed.mode}, transport says ${keyed.playing ? 'Pause' : 'Play'}`);
+  }
+
+  console.log('\n--- when the speed engine cannot start ---');
+  {
+    /* THE FAULT ITSELF, PUT BACK ON PURPOSE.
+     *
+     * Switching engines pauses the song before it does anything else, so a
+     * failure part-way took the sound away, said nothing, and left the app in a
+     * state no button could undo — Ted had to kill the program from Task
+     * Manager. This breaks the engine start deliberately and requires four
+     * things of the app: it says why, it says the song is still going, the
+     * player is back on an engine it can play from, and the dial is not stuck
+     * where it failed. */
+    /* BOTH DIALS BACK, AND THE APP TOLD ABOUT IT. Setting the value without
+       dispatching the event changes the dial and not the song, so the song was
+       reopened still transposed and went straight back onto the engine — which
+       is why this check had nothing left to break. */
+    await page.dblclick('.knob[data-knob="speed"]').catch(() => {});
+    await page.dblclick('.knob[data-knob="key"]').catch(() => {});
+    await page.evaluate(() => {
+      const el = document.getElementById('key');
+      el.value = '0';
+      el.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    await page.waitForTimeout(400);
+    /* FROM A CLEAN START. The engine only fails on its way IN, and the block
+       above left the player already running it, so the song is reopened —
+       plain playback, no engine, exactly where Ted was when he reached for the
+       speed knob. */
+    await page.evaluate(() => window.__tvaOpenFirstArg?.());
+    await page.waitForFunction(
+      () => window.__tvaMode && window.__tvaMode() === 'straight', { timeout: 20000 });
+    await page.evaluate(() => window.__tvaSeek?.(0));
+    if ((await page.getAttribute('#play', 'aria-label')) === 'Play') await page.click('#play');
+    await page.waitForTimeout(600);
+
+    await page.evaluate(() => {
+      window.__tvaFailEngineOnce();
+      const el = document.getElementById('speed');
+      el.value = '70';
+      el.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    await page.waitForTimeout(2000);
+
+    const after = await page.evaluate(() => ({
+      msg: document.getElementById('msg').textContent ?? '',
+      mode: window.__tvaMode?.(),
+      speed: window.__tvaSpeed?.(),
+      playing: document.getElementById('play').getAttribute('aria-label') === 'Pause',
+    }));
+
+    check('the app says the speed control could not start',
+      /would not start|could not start/i.test(after.msg), after.msg);
+    check('and it says the song is still playing at normal speed',
+      /normal speed/i.test(after.msg), after.msg);
+    check('and the player is back on an engine it can play from',
+      after.mode === 'straight', `mode is ${after.mode}`);
+    check('and the dial is back to normal rather than stuck where it failed',
+      after.speed === 1, `speed is ${after.speed}`);
+    check('and the song was never left paused', after.playing,
+      `transport says ${after.playing ? 'Pause' : 'Play'}`);
+
+    await page.dblclick('.knob[data-knob="speed"]').catch(() => {});
+  }
+
   console.log('\n--- the dials themselves ---');
   {
     /* DOUBLE-CLICK PUTS A DIAL BACK. Ted asked for it and every dial on a desk

@@ -206,6 +206,45 @@ export class Player {
     const wasPlaying = this.playing;
     if (this.el) this.el.pause();
 
+    try {
+      return await this._buildPracticeEngine(fetchBytes, at, wasPlaying);
+    } catch (err) {
+      /* THE SOUND IS ALREADY OFF BY THE TIME ANYTHING CAN GO WRONG.
+       *
+       * Switching engines pauses the element first, then decodes the whole
+       * song, loads the worklet and hands over the samples — and any of those
+       * can fail. Without this, a failure left the element paused, the mode
+       * still 'straight', no engine, and a rejected promise nobody was
+       * listening to: the song stopped, the app said nothing, and no button
+       * could talk it back into playing. Ted found it by changing the speed and
+       * then having to kill the program from Task Manager to get sound again.
+       *
+       * So a failed switch puts the player back exactly where it was standing —
+       * same position, playing again if it was playing — and throws something
+       * the page can say out loud. A speed control that refuses is a nuisance;
+       * one that silently takes the sound away is a broken app. */
+      this.stretch = null;
+      this.buffer = null;
+      this.mode = this.el ? 'straight' : 'idle';
+      this._practicePlaying = false;
+      if (this.el) {
+        try {
+          setSource(this.graph, this.elSource);
+          if (Number.isFinite(at)) this.el.currentTime = at;
+          if (wasPlaying) await this.el.play();
+          this.onState(wasPlaying ? 'playing' : 'paused');
+        } catch { /* the element is beyond helping; the message below still goes out */ }
+      }
+      throw new Error(`The speed and key engine would not start: ${err?.message ?? err}`);
+    }
+  }
+
+  async _buildPracticeEngine(fetchBytes, at, wasPlaying) {
+    if (this.failEngineOnce) {
+      // Set only by a check, to prove the app survives a failed engine start.
+      this.failEngineOnce = false;
+      throw new Error('deliberately broken for a check');
+    }
     const bytes = await fetchBytes(this.song.url);
     this.buffer = await this.ctx.decodeAudioData(bytes);
 

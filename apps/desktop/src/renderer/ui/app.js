@@ -140,7 +140,24 @@ async function ensurePracticeMode() {
   }
 
   say('Getting the speed and key controls ready…');
-  const node = await player.enterPracticeMode(async (url) => (await fetch(url)).arrayBuffer());
+  let node;
+  try {
+    node = await player.enterPracticeMode(async (url) => (await fetch(url)).arrayBuffer());
+  } catch (err) {
+    /* IT SAYS SO, AND THE SONG KEEPS PLAYING.
+     *
+     * This used to be an uncaught rejection. Switching engines pauses the song
+     * before it does anything else, so a failure here took the sound away and
+     * left no message and no way back — Ted had to kill the program from Task
+     * Manager to hear anything again. The player puts itself back to normal
+     * speed now; this is the part that tells him why the control refused,
+     * instead of a dial that moves and a room that goes quiet. */
+    say(`${err?.message ?? 'The speed and key controls could not start.'} `
+      + 'The song is still playing at normal speed.');
+    settings = sanitizePlayerSettings({ ...settings, speed: 1, halfSteps: 0 });
+    paintControls();
+    return false;
+  }
   if (!node) { say('The speed and key controls could not start for this song.'); return false; }
   // Whatever the knobs say NOW, not what they said when this started.
   player.applyPractice(settings);
@@ -1090,6 +1107,17 @@ window.addEventListener('resize', () => { drawWave(); });
    but what happens after it: the media element asks for the song from a new
    offset, and that request has to be answered with the right bytes or the sound
    comes from the wrong place. This is the same call the wave makes. */
+/* MAKE THE SPEED ENGINE FAIL ON PURPOSE, once.
+ *
+ * Ted changed the speed and the song went silent, with no message and no way
+ * back short of killing the program. The app survives that now — but "it
+ * survives" is a claim, and a claim needs a way to be tested. This lets a check
+ * break the engine start deliberately and then look at what the app does with
+ * it: does it say why, does the song carry on at normal speed, is the player
+ * still in a state that can play. Without it the recovery path would never run
+ * outside the fault itself. */
+window.__tvaFailEngineOnce = () => { player.failEngineOnce = true; };
+
 window.__tvaSeek = (seconds) => { player.seek(seconds); return player.currentTime; };
 window.__tvaMode = () => player.mode;
 window.__tvaGraph = () => player.graph;

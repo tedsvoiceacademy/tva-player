@@ -105,9 +105,13 @@ public class SongFromThePickerTest {
         /* describe() asks the provider for a display name. Without it a song is
            listed as the tail of a URI, which is unreadable and was one of the
            things that made the phone app feel broken. */
-        assertTrue("The song is listed by its address rather than its name: "
-            + page.eval("document.getElementById('now-name').textContent"),
-            page.eval("document.getElementById('now-name').textContent").contains("Shenandoah"));
+        /* CASE-INSENSITIVELY, because the lit readout shows a song's name in
+           capitals the way a real piece of hardware does. Comparing letter for
+           letter failed a build on SHENANDOAH.MP3 — which is the right name,
+           correctly read from the provider, in the right place. */
+        String shown = page.eval("document.getElementById('now-name').textContent");
+        assertTrue("The song is listed by its address rather than its name: " + shown,
+            shown.toLowerCase(java.util.Locale.ROOT).contains("shenandoah"));
 
         page.eval("document.getElementById('play').click()");
         page.waitUntil("and it plays",

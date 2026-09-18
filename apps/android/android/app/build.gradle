@@ -40,6 +40,19 @@ android {
             storePassword 'android'
             keyAlias 'androiddebugkey'
             keyPassword 'android'
+            /* EVERY SCHEME, NOT JUST THE ONE ANDROID MINIMALLY ACCEPTS.
+             *
+             * Left to itself this build signed with v2 alone — no v1, no v3.
+             * That is legal, and it installs on a plain emulator, which is
+             * exactly why it went unnoticed. Real phones are fussier: several
+             * makers' own protections refuse a sideloaded app that is not
+             * signed every way they know how to check, and they refuse it the
+             * way Ted saw — "Installation cancelled", with no reason given.
+             * Signing all three costs nothing and removes a whole class of
+             * phone-specific refusals. */
+            enableV1Signing true
+            enableV2Signing true
+            enableV3Signing true
         }
     }
     buildTypes {

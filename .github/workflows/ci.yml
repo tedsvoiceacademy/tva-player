@@ -139,6 +139,23 @@ jobs:
           GOT=$("$APKSIGNER" verify --print-certs app/build/outputs/apk/debug/app-debug.apk \
             | sed -n 's/.*certificate SHA-256 digest: //p' | head -1)
           echo "signed by $GOT"
+
+          # AND SIGNED EVERY WAY A PHONE MIGHT LOOK. Left to itself this build
+          # signed with v2 alone, which is legal and installs on a plain
+          # emulator — and is refused by several makers' own protections, with
+          # no reason given. v1 is legacy and Android skips it at this minimum
+          # SDK; v2 and v3 are the pair that matter.
+          SCHEMES=$("$APKSIGNER" verify -v app/build/outputs/apk/debug/app-debug.apk)
+          echo "$SCHEMES" | grep -E '^Verified using v[23] scheme'
+          for want in v2 v3; do
+            if ! echo "$SCHEMES" | grep -qE "^Verified using $want scheme.*: true"; then
+              echo "FAIL the app is not signed with the $want scheme."
+              echo "     Phones that check for it refuse the install and say only"
+              echo "     'Installation cancelled'."
+              exit 1
+            fi
+          done
+
           if [ "$GOT" != "$EXPECT" ]; then
             echo "FAIL the app is signed by a key Ted's phone has never seen."
             echo "     It will refuse to install over the copy he already has, and it"

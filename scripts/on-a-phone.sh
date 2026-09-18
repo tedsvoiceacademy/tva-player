@@ -65,9 +65,22 @@ echo "=== putting the three faults back ==="
 sed -i '/uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS"/d' \
   app/src/main/AndroidManifest.xml
 
-# 2. Serving a song without ever saying how long it is, which leaves the
-#    duration at Infinity and the clock stuck on 0:00.
-sed -i 's|        String header = rangeHeader == null|        if (true) return new Plan(200, 0, -1, null, -1);\n        String header = rangeHeader == null|' \
+# 2. Refusing every request for the song's bytes.
+#
+#    THIS WAS A WEAKER MUTATION UNTIL A BUILD SAID SO. It used to serve the song
+#    without ever stating its length, on the reasoning that a media element then
+#    reports the duration as Infinity and the clock sticks on 0:00 -- which is
+#    true of a long song from a slow provider. The check went green anyway,
+#    because an eight-second file downloads in a moment and the element works the
+#    length out for itself once it has the lot. A control that does not bite is
+#    worth nothing, so this refuses the bytes outright: the song cannot open, and
+#    a check that claims a song opened has to notice.
+#
+#    What this control proves is that the check really drives the app's own
+#    song-serving path. Whether the RIGHT bytes come back is proved properly
+#    elsewhere -- SliceTest and RangesTest, twenty-two cases on a plain JVM, with
+#    their own controls.
+sed -i 's|    public static Plan plan(String rangeHeader, long total) {|    public static Plan plan(String rangeHeader, long total) {\n        if (true) return new Plan(416, 0, -1, "bytes */" + total, -1);|' \
   app/src/main/java/com/tedsvoiceacademy/player/Ranges.java
 
 # 3. The phone layout, removed — the same mutation phone-harness.mjs uses for

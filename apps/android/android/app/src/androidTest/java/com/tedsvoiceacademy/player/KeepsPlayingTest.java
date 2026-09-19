@@ -67,9 +67,10 @@ public class KeepsPlayingTest {
     @Rule
     public IntentsRule intents = new IntentsRule();
 
-    /* The permission whose granting is what broke it. Android 13 and later ask
+    /* THE PERMISSION WHOSE GRANTING IS WHAT BROKE IT. Android 13 and later ask
        before an app may show a notification; below that it is granted already and
-       this rule is harmless. */
+       this rule is harmless. Without it the service path never runs at all, and
+       this test would prove nothing while looking green. */
     @Rule
     public GrantPermissionRule notifications =
         GrantPermissionRule.grant("android.permission.POST_NOTIFICATIONS");

@@ -19,6 +19,7 @@ import android.net.Uri;
 import androidx.core.content.FileProvider;
 import androidx.test.espresso.intent.rule.IntentsRule;
 import androidx.test.ext.junit.runners.AndroidJUnit4;
+import androidx.test.rule.GrantPermissionRule;
 import androidx.test.platform.app.InstrumentationRegistry;
 
 import java.io.File;
@@ -54,6 +55,15 @@ import org.junit.runner.RunWith;
  */
 @RunWith(AndroidJUnit4.class)
 public class SongFromThePickerTest {
+
+    /* THE NOTIFICATION PERMISSION, GRANTED SO NO DIALOG APPEARS MID-TEST.
+       The app asks for it a couple of seconds after it opens — deliberately, so a
+       person is not asked in the middle of the first song they play. Android's
+       dialog would then sit over whatever this test is doing. Granting it here
+       takes the dialog out of the way; it is not what this test is about. */
+    @Rule
+    public GrantPermissionRule notifications =
+        GrantPermissionRule.grant("android.permission.POST_NOTIFICATIONS");
 
     @Rule
     public IntentsRule intents = new IntentsRule();

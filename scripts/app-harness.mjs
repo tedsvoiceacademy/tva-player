@@ -177,8 +177,13 @@ control('apps/desktop/dist/renderer/audio/graph.js',
 control('apps/desktop/dist/renderer/audio/player.js',
   'numberOfInputs: 1, numberOfOutputs: 1, outputChannelCount: [2],',
   'numberOfInputs: 0, outputChannelCount: [2],', 'the stretch engine', 'engine',
-  ['and the speed engine actually makes a sound',
-    'and it is still playing after the engine takes over']);
+  /* ONLY THE LONG-SONG CHECK. Whether the engine is asked for a block before it
+     has finished being handed the song depends on how much song there is, and on
+     the six-second file the rest of these checks use it does not reproduce at
+     all — which is the whole reason this fault shipped. Naming the six-second
+     check here would make this control fail on a fast runner and pass on a slow
+     one, which is worse than not naming it. */
+  ['and the speed engine actually makes a sound']);
 
 /* EIGHT — the handover, decided before the song was playing rather than at the
    moment it happens. This is the old ordering in one line: the engine lands
@@ -585,9 +590,12 @@ try {
     await page.waitForFunction(
       () => !document.getElementById('play').disabled && window.__tvaMode() === 'straight',
       { timeout: 40000 }).catch(() => {});
-    check('the saved speed comes back with the song',
-      (await page.evaluate(() => window.__tvaSpeed())) === 0.89,
-      `speed is ${await page.evaluate(() => window.__tvaSpeed())}`);
+    /* READ ONCE. Asserting on one reading and then printing a second one is how a
+       check comes out red with a detail line saying the right answer, which is
+       the least useful failure there is. */
+    const cameBack = await page.evaluate(() => window.__tvaSpeed());
+    check('the saved speed comes back with the song', cameBack === 0.89,
+      `speed is ${cameBack}`);
 
     await page.evaluate(() => window.__tvaSeek(0));
     await page.click('#play');                // pressed WHILE the engine is building
@@ -600,9 +608,9 @@ try {
     /* READ THE MOMENT THE ENGINE LANDS. This is the instant the handover used to
        flip the transport back to Play with the song still running — so it is read
        before the listening below, which on a six-second song can outlast it. */
-    check('and the transport still says it is playing',
-      (await page.getAttribute('#play', 'aria-label')) === 'Pause',
-      `transport says ${await page.getAttribute('#play', 'aria-label')}`);
+    const transport = await page.getAttribute('#play', 'aria-label');
+    check('and the transport still says it is playing', transport === 'Pause',
+      `transport says ${transport}`);
     const after = await soundCameOut(page, 1500);
     const onEngine = await page.evaluate(() => window.__tvaMode());
     check('and it is still playing after the engine takes over',

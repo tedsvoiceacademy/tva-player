@@ -71,11 +71,17 @@ It keeps playing, and the song appears on the lock screen with a play and a paus
 you can use from there or from a pair of headphones.
 
 Android is entitled to freeze an app it cannot see, so the app tells the phone
-what it is playing — a foreground service, audio focus and a media session, which
+what it is playing — a foreground service, a wake lock and a media session, which
 is also the first half of what Android Auto needs. **Android 13 and later ask
-permission to show a notification the first time you press play.** The
-notification is not decoration: it is what makes the phone leave the song alone.
-Refuse it and the app says so, and the song will stop when the screen does.
+permission to show a notification, and the app asks for it when it opens**, with
+a line on screen first saying what it is for. The notification is not decoration:
+it is what makes the phone leave the song alone. Refuse it and the app says so,
+and the song will stop when the screen does.
+
+The app deliberately does NOT take audio focus of its own. The page's own player
+already holds it for the song it is playing, and a second claim from inside the
+same app is what used to stop the song a split second after it started, on every
+song, once the notification permission had been granted.
 
 ## "Installation cancelled", once
 

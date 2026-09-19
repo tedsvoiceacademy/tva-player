@@ -14,7 +14,7 @@
  * Both feed the same tail, so the balance and lead-quieter maths is shared and
  * cannot fork between them.
  */
-import { getSharedAudioContext, resumeSharedAudio } from './context.js';
+import { getSharedAudioContext, resumeSharedAudio, lastResumeFailure } from './context.js';
 import { buildGraph, routeTail, setSource, applyBalance } from './graph.js';
 
 /* Above this, practice mode is refused rather than attempted. The refusal says
@@ -39,6 +39,10 @@ export class Player {
        this necessary — a fresh engine per pixel of knob movement — showed no
        symptom other than the app locking up, and a test cannot see that. */
     this.engineStarts = 0;
+    /* Bumped every time the player is emptied for a new song. An engine takes
+       seconds to build, and one that finishes after its song has gone must not
+       be wired in — see the comment in _enterPracticeMode. */
+    this.generation = 0;
   }
 
   /* ---- Opening ---------------------------------------------------------- */
@@ -107,11 +111,23 @@ export class Player {
     this.elSource = this.ctx.createMediaElementSource(el);
     setSource(this.graph, this.elSource);
 
-    el.addEventListener('timeupdate', () => this.onTime(this.currentTime, this.duration));
-    el.addEventListener('durationchange', () => this.onTime(this.currentTime, this.duration));
-    el.addEventListener('ended', () => this.onState('ended'));
-    el.addEventListener('play', () => this.onState('playing'));
-    el.addEventListener('pause', () => this.onState('paused'));
+    /* ONLY WHILE THIS ELEMENT IS THE ONE MAKING THE SOUND.
+     *
+     * Moving onto the speed engine pauses the element, and a media element's
+     * pause event arrives a moment LATER — after the engine has already started
+     * and said it is playing. The display then read Play over a song that was
+     * playing perfectly well. The same goes for its clock: an element that has
+     * been left behind must not overwrite the engine's position. */
+    const stillMine = () => this.el === el && this.mode === 'straight';
+    el.addEventListener('timeupdate', () => {
+      if (stillMine()) this.onTime(this.currentTime, this.duration);
+    });
+    el.addEventListener('durationchange', () => {
+      if (stillMine()) this.onTime(this.currentTime, this.duration);
+    });
+    el.addEventListener('ended', () => { if (stillMine()) this.onState('ended'); });
+    el.addEventListener('play', () => { if (stillMine()) this.onState('playing'); });
+    el.addEventListener('pause', () => { if (stillMine()) this.onState('paused'); });
 
     this.onState('ready');
     return { duration: this.duration };
@@ -121,7 +137,14 @@ export class Player {
 
   /* Every reason a browser refuses to play, in words rather than a code. */
   async play() {
-    await resumeSharedAudio();
+    const ctx = await resumeSharedAudio();
+    /* THE SOUND OUTPUT ITSELF WOULD NOT START. This used to be swallowed, which
+       left a play button that did nothing and no explanation anywhere. */
+    if (ctx.state !== 'running') {
+      throw new Error('The sound output would not start'
+        + (lastResumeFailure ? `: ${lastResumeFailure}. ` : `; it is ${ctx.state}. `)
+        + 'Choosing a different output under Set-up usually sorts this.');
+    }
     if (this.mode === 'practice') {
       this._practicePlaying = true;
       this.stretch.schedule({ active: true });
@@ -202,27 +225,78 @@ export class Player {
 
   async _enterPracticeMode(fetchBytes) {
     this.engineStarts++;
-    const at = this.currentTime;
-    const wasPlaying = this.playing;
-    if (this.el) this.el.pause();
+    const startedFor = this.song;
+    const startedAt = this.generation;
 
+    /* NOTHING THAT IS PLAYING IS TOUCHED UNTIL THE ENGINE IS READY.
+     *
+     * This used to pause the element FIRST and then spend several seconds
+     * fetching the file, decoding it, compiling the stretch engine's WASM and
+     * registering its worklet — and it wrote down, before all that, whether the
+     * song was playing. Press play during the decode and the handover
+     * disconnected a PLAYING element from the speakers and scheduled the engine
+     * switched off, because the answer written down seconds earlier was "not
+     * playing". Silence, no message, and nothing short of reopening the app
+     * could reconnect it, because opening a song is the only thing that points
+     * the graph back at an element.
+     *
+     * Ted hit exactly that: a song with 89% saved on it, play pressed while it
+     * opened, and no sound — "then I closed it and reopened, opened a song and
+     * it played."
+     *
+     * So the engine is built first and the handover is one block that reads
+     * where the song actually is at the moment it happens. The song plays
+     * normally throughout, and changing the speed no longer leaves a gap. */
+    let built;
     try {
-      return await this._buildPracticeEngine(fetchBytes, at, wasPlaying);
+      built = await this._buildPracticeEngine(fetchBytes);
     } catch (err) {
-      /* THE SOUND IS ALREADY OFF BY THE TIME ANYTHING CAN GO WRONG.
-       *
-       * Switching engines pauses the element first, then decodes the whole
-       * song, loads the worklet and hands over the samples — and any of those
-       * can fail. Without this, a failure left the element paused, the mode
-       * still 'straight', no engine, and a rejected promise nobody was
-       * listening to: the song stopped, the app said nothing, and no button
-       * could talk it back into playing. Ted found it by changing the speed and
-       * then having to kill the program from Task Manager to get sound again.
-       *
-       * So a failed switch puts the player back exactly where it was standing —
-       * same position, playing again if it was playing — and throws something
-       * the page can say out loud. A speed control that refuses is a nuisance;
-       * one that silently takes the sound away is a broken app. */
+      /* Nothing was changed, so there is nothing to put back: the song is still
+         playing at normal speed, and the page says why the control refused. */
+      throw new Error(`The speed and key engine would not start: ${err?.message ?? err}`);
+    }
+
+    /* AND THE SONG MAY HAVE MOVED ON WHILE IT BUILT. Opening another song
+       during a build used to let the finished engine land on the new one —
+       disconnecting ITS element, reporting the old song's length, and playing
+       the old song's audio, with no way back, since both entry points
+       short-circuit once the mode says 'practice'. An engine built for a song
+       that is no longer open is thrown away instead. */
+    if (startedAt !== this.generation || this.song !== startedFor || !this.el) {
+      try { built.node.disconnect(); } catch { /* it never reached the graph */ }
+      return null;
+    }
+
+    const at = this.currentTime;
+    const wasPlaying = this.playing;          // NOW, not before the decode
+    try {
+      this.el.pause();
+      this.buffer = built.buffer;
+      this.stretch = built.node;
+      this.mode = 'practice';
+      this._practicePlaying = wasPlaying;
+      setSource(this.graph, built.node);
+
+      built.node.setUpdateInterval(0.05, (t) => {
+        this.practiceTime = t;
+        this.onTime(t, this.duration);
+      });
+      /* TWO CALLS, NOT ONE, AND THE ORDER MATTERS.
+         Asking for a position and a start in the same breath — schedule({active:
+         true, input: at}) — leaves the engine silent: it reports the position
+         back, the player believes it is playing, and nothing comes out. Placing
+         the playhead first and then starting is the pair of calls the app has
+         always made from open and from play, and it is the pair that works. */
+      built.node.schedule({ active: wasPlaying, input: at });
+      this.practiceTime = at;
+      this.onState(wasPlaying ? 'playing' : 'paused');
+      return built.node;
+    } catch (err) {
+      /* THE HANDOVER ITSELF FAILED, which is the one path that can leave the
+         graph half-swapped. The element goes back exactly where it was standing
+         — same position, playing again if it was playing — and the page says
+         why. A speed control that refuses is a nuisance; one that silently
+         takes the sound away is a broken app. */
       this.stretch = null;
       this.buffer = null;
       this.mode = this.el ? 'straight' : 'idle';
@@ -239,38 +313,86 @@ export class Player {
     }
   }
 
-  async _buildPracticeEngine(fetchBytes, at, wasPlaying) {
+  /** Decode the song and build the stretch node, touching nothing that is
+   *  playing. Returns { node, buffer } for the caller to hand over in one go. */
+  async _buildPracticeEngine(fetchBytes) {
     if (this.failEngineOnce) {
       // Set only by a check, to prove the app survives a failed engine start.
       this.failEngineOnce = false;
       throw new Error('deliberately broken for a check');
     }
     const bytes = await fetchBytes(this.song.url);
-    this.buffer = await this.ctx.decodeAudioData(bytes);
+    const buffer = await this.ctx.decodeAudioData(bytes);
 
     const mod = await import('../vendor/SignalsmithStretch.mjs');
-    const node = await mod.default(this.ctx, { numberOfInputs: 0, outputChannelCount: [2] });
+    /* ONE INPUT, NOT NONE — AND THIS IS THE WHOLE OF TED'S SILENT PLAYER.
+     *
+     * The node used to be built with numberOfInputs: 0, which is honest: it
+     * plays a song held in memory and there is nothing to feed it. But the
+     * stretch engine's own processor, on any block where it is not playing,
+     * reaches for the live input it has not got:
+     *
+     *     let inputs = inputList[0];                 // undefined with no inputs
+     *     if (!currentMapSegment.active) {
+     *         outputList[0].forEach((_, c) => {
+     *             let channelBuffer = inputs[c % inputs.length];   // throws
+     *
+     * A processor that throws is destroyed by the browser on the spot and never
+     * runs again. So the engine died the first time it was asked to render while
+     * paused — which is every time a song is opened with a speed already saved
+     * on it, because the engine is built before anyone presses play. After that
+     * it answered every question correctly: it reported its position, it accepted
+     * a new speed, it said it was playing. It simply made no sound, ever, and
+     * nothing but reopening the app could get any back. That is exactly what Ted
+     * had: "I noticed the speed was at 89%... Still nothing, but then I closed it
+     * and reopened, opened a song and it played."
+     *
+     * An input that is connected to nothing arrives as an empty array rather
+     * than as undefined, so that line reads harmlessly and the processor lives.
+     * The engine still takes its audio from the buffers handed to it: the branch
+     * that would use a live input needs inputs.length above zero, and there is
+     * nothing connected to it. NEVER SET THIS BACK TO ZERO. */
+    const node = await mod.default(this.ctx, {
+      numberOfInputs: 1, numberOfOutputs: 1, outputChannelCount: [2],
+    });
+
+    /* AND IF IT DIES ANYWAY, SAY SO. This is reported nowhere else — not as an
+       exception, not in the console — so without it a dead engine is a player
+       that looks perfect and makes no sound. */
+    node.onprocessorerror = () => this._engineDied();
 
     const chans = [];
-    for (let c = 0; c < this.buffer.numberOfChannels; c++) chans.push(this.buffer.getChannelData(c));
+    for (let c = 0; c < buffer.numberOfChannels; c++) chans.push(buffer.getChannelData(c));
     // A mono recording is duplicated so the tail always has two sides to work
     // with, and the balance control still means something.
     if (chans.length === 1) chans.push(chans[0]);
     await node.addBuffers(chans);
+    return { node, buffer };
+  }
 
-    this.stretch = node;
-    this.mode = 'practice';
-    this._practicePlaying = wasPlaying;
-    setSource(this.graph, node);
-
-    node.setUpdateInterval(0.05, (t) => {
-      this.practiceTime = t;
-      this.onTime(t, this.duration);
-    });
-    node.schedule({ active: wasPlaying, input: at });
-    this.practiceTime = at;
-    this.onState(wasPlaying ? 'playing' : 'paused');
-    return node;
+  /* THE ENGINE DIED, SO GO BACK TO PLAYING THE SONG NORMALLY.
+   *
+   * A browser destroys an audio processor that throws, and tells nobody: no
+   * exception, nothing in the console, and a node that answers every question
+   * correctly while making no sound at all. The cause of the one that bit Ted is
+   * fixed above, and this is what happens if another ever turns up — the song
+   * carries on at normal speed from where it was, and the page says so, rather
+   * than the app going quiet with no way back. */
+  _engineDied() {
+    const at = this.practiceTime;
+    const wasPlaying = this._practicePlaying === true;
+    this.stretch = null;
+    this.buffer = null;
+    this._practicePlaying = false;
+    this.mode = this.el ? 'straight' : 'idle';
+    if (this.el) {
+      try {
+        setSource(this.graph, this.elSource);
+        if (Number.isFinite(at)) this.el.currentTime = Math.max(0, at);
+        if (wasPlaying) this.el.play().catch(() => {});
+      } catch { /* the element is beyond helping; the message still goes out */ }
+    }
+    this.onState('engine-died');
   }
 
   /** Speed, key and formants — the three the stretch engine owns. */
@@ -309,6 +431,8 @@ export class Player {
     this.el = null; this.elSource = null; this.stretch = null; this.buffer = null;
     this.mode = 'idle'; this.practiceTime = 0; this._practicePlaying = false;
     this._entering = null; this.engineStarts = 0;
+    /* Any engine still building belongs to the song that just went. */
+    this.generation++;
   }
 }
 

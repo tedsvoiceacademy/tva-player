@@ -7,9 +7,6 @@ import android.app.PendingIntent;
 import android.app.Service;
 import android.content.Context;
 import android.content.Intent;
-import android.media.AudioAttributes;
-import android.media.AudioFocusRequest;
-import android.media.AudioManager;
 import android.os.Build;
 import android.os.IBinder;
 import android.os.PowerManager;
@@ -30,8 +27,8 @@ import androidx.media.session.MediaButtonReceiver;
  *
  *   1. A FOREGROUND SERVICE, typed mediaPlayback. Without it the process is
  *      merely backgrounded and may be frozen or reclaimed at any moment.
- *   2. AUDIO FOCUS. It is also what makes the app behave properly when a call
- *      comes in or a message arrives, rather than being talked over.
+ *   2. A WAKE LOCK on the CPU, so a long practice session survives the screen
+ *      going off.
  *   3. A MEDIA SESSION. This is what puts the song on the lock screen, gives the
  *      pause button on the headphones something to talk to, and — later — is
  *      what Android Auto browses. Doing it now is not a detour.
@@ -40,6 +37,29 @@ import androidx.media.session.MediaButtonReceiver;
  * where the speed and key engine, the pan and the loops live. This service is
  * the standing the app needs for the phone to leave that page running, and the
  * controls that reach it from outside.
+ *
+ * AND IT DELIBERATELY DOES NOT TAKE AUDIO FOCUS. Do not add it back.
+ *
+ * This service used to request AUDIOFOCUS_GAIN every time the page said it was
+ * playing. The web view ALREADY holds focus for the <audio> element it is
+ * playing, so that made a second focus client inside one app, asking a fraction
+ * of a second after the sound started — the time it takes the page to reach
+ * Playback.playing and this service to start. One of the two has to lose. Either
+ * the web view was told it lost and paused its own element, or this service's
+ * listener fired and told the page to pause. There was no AUDIOFOCUS_GAIN
+ * branch, so nothing ever undid it.
+ *
+ * Ted got a split second of sound and then silence, on every song, for ever:
+ * "it only plays the first split second of the file and stops. Opened a
+ * different song and it wouldn't play more than the split second right out of
+ * the chute." It began the moment he granted the notification permission,
+ * because until then Playback.playing returned before ever starting this
+ * service — see the comment there.
+ *
+ * The web view's own media stack handles focus correctly for the element it
+ * owns, a telephone call included. Nothing here needs focus: the foreground
+ * type, the wake lock and the session do the work. focusRequests below exists
+ * only so a check can prove none is taken.
  */
 public class PlaybackService extends Service {
 
@@ -56,25 +76,16 @@ public class PlaybackService extends Service {
         void onCommand(String action);
     }
 
-    private AudioManager audio;
-    private AudioFocusRequest focus;
     private PowerManager.WakeLock awake;
+
+    /* Counted, not taken. A check reads this and requires it to stay at zero;
+       putting the focus request back turns that check red on any phone. */
+    static int focusRequests = 0;
 
     @Override
     public void onCreate() {
         super.onCreate();
-        audio = (AudioManager) getSystemService(Context.AUDIO_SERVICE);
-
-        session = new MediaSessionCompat(this, "TVAPlayer");
-        session.setCallback(new MediaSessionCompat.Callback() {
-            @Override public void onPlay() { say("play"); }
-            @Override public void onPause() { say("pause"); }
-            @Override public void onStop() { say("stop"); }
-            @Override public void onSkipToNext() { say("next"); }
-            @Override public void onSkipToPrevious() { say("previous"); }
-            @Override public void onSeekTo(long ms) { say("seek:" + ms); }
-        });
-        session.setActive(true);
+        ensureSession();
 
         PowerManager power = (PowerManager) getSystemService(Context.POWER_SERVICE);
         /* The CPU, not the screen. A practice app that held the screen on would
@@ -93,15 +104,37 @@ public class PlaybackService extends Service {
         }
     }
 
+    /* The session is static, and onDestroy clears it. A stopService racing a
+       startForegroundService therefore used to leave onStartCommand reading a
+       null one. Built here rather than only in onCreate so either can ask. */
+    private void ensureSession() {
+        if (session != null) return;
+        session = new MediaSessionCompat(this, "TVAPlayer");
+        session.setCallback(new MediaSessionCompat.Callback() {
+            @Override public void onPlay() { say("play"); }
+            @Override public void onPause() { say("pause"); }
+            @Override public void onStop() { say("stop"); }
+            @Override public void onSkipToNext() { say("next"); }
+            @Override public void onSkipToPrevious() { say("previous"); }
+            @Override public void onSeekTo(long ms) { say("seek:" + ms); }
+        });
+        session.setActive(true);
+    }
+
     private void say(String action) {
         if (listener != null) listener.onCommand(action);
     }
 
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
+        ensureSession();                        // a stopService may have raced a start
         MediaButtonReceiver.handleIntent(session, intent);
         String title = intent != null ? intent.getStringExtra("title") : null;
-        boolean playing = intent == null || intent.getBooleanExtra("playing", true);
+        /* A NULL INTENT MEANS ANDROID RESTARTED THE SERVICE, not that a song is
+           playing. START_STICKY hands one back after the process is reclaimed,
+           and defaulting to true had the phone showing "Playing" and holding a
+           wake lock with nothing playing at all. */
+        boolean playing = intent != null && intent.getBooleanExtra("playing", true);
 
         /* startForeground has to be called promptly after the service starts, or
            Android kills the app with a ForegroundServiceDidNotStartInTimeException
@@ -131,7 +164,6 @@ public class PlaybackService extends Service {
             .build());
 
         if (playing) {
-            takeFocus();
             if (!awake.isHeld()) awake.acquire(4 * 60 * 60 * 1000L);   // a long lesson, never for ever
         } else {
             if (awake.isHeld()) awake.release();
@@ -165,33 +197,9 @@ public class PlaybackService extends Service {
             .build();
     }
 
-    private void takeFocus() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            if (focus == null) {
-                focus = new AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN)
-                    .setAudioAttributes(new AudioAttributes.Builder()
-                        .setUsage(AudioAttributes.USAGE_MEDIA)
-                        .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
-                        .build())
-                    .setOnAudioFocusChangeListener((change) -> {
-                        /* A call, or another app taking over. The page is told, so
-                           it pauses rather than being talked over — and so the
-                           clock on screen agrees with what is audible. */
-                        if (change == AudioManager.AUDIOFOCUS_LOSS
-                            || change == AudioManager.AUDIOFOCUS_LOSS_TRANSIENT) say("pause");
-                    })
-                    .build();
-            }
-            audio.requestAudioFocus(focus);
-        }
-    }
-
     @Override
     public void onDestroy() {
         if (awake != null && awake.isHeld()) awake.release();
-        if (focus != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            audio.abandonAudioFocusRequest(focus);
-        }
         if (session != null) { session.setActive(false); session.release(); session = null; }
         super.onDestroy();
     }

@@ -14,6 +14,7 @@ import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { makeSong, makeMp3 } from './make-test-song.mjs';
+import { soundCameOut, AUDIBLE, heard } from './sound-meter.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const NEGATIVE = process.argv.includes('--negative-control');
@@ -57,33 +58,55 @@ await writeFile(notAudioPath, 'not a song');
  * intended, quietly, and the giveaway is a control that "does not apply"
  * because the file was already broken. That happened; this is the fix.
  */
-const mutations = [];
-async function control(relative, from, to, what) {
-  const target = join(ROOT, relative);
-  /* TWO CONTROLS CAN LIVE IN ONE FILE, so the second builds on the first rather
-     than on what is on disk. Written independently they both looked right and
-     the later write silently undid the earlier one — the lead-quieter check
-     went green in the control run, which is precisely the failure this whole
-     idea exists to catch. */
-  const already = mutations.find((m) => m.target === target);
-  const original = already ? already.original : await readFile(target, 'utf8');
-  const from_ = already ? already.broken : original;
-  const broken = from_.replace(from, to);
-  const applies = broken !== from_;
-  if (already) {
-    already.broken = broken;
-    already.applies = already.applies && applies;
-    already.what += `, ${what}`;
-  } else {
-    mutations.push({ target, original, broken, what, applies });
+const edits = [];
+/* One deliberate break. `key` names it so a single control can be run on its
+   own, and `mustGoRed` names the checks it exists to turn red.
+ *
+ * WHY ONE AT A TIME MATTERS. Three of these live in the same file and two of
+ * them mask the third: killing the stretch engine also stops a stale engine
+ * wiring itself into the wrong song, so the check for that stayed green with its
+ * own fault put back and looked like proof. A control that cannot be isolated
+ * cannot be trusted. */
+function control(relative, from, to, what, key, mustGoRed = []) {
+  edits.push({ relative, from, to, what, key, mustGoRed });
+}
+
+const ONLY = (process.argv.find((a) => a.startsWith('--only=')) ?? '').slice('--only='.length);
+
+/* THEY ARE STAGED AND WRITTEN TOGETHER, and that is not tidiness. Applied one
+ * at a time, a control whose text has moved exits the run — leaving the ones
+ * before it still broken in dist/. The next run then tests a build nobody
+ * intended, quietly, and the giveaway is a control that "does not apply"
+ * because the file was already broken. That happened; this is the fix.
+ *
+ * TWO CONTROLS CAN LIVE IN ONE FILE, so the second builds on the first rather
+ * than on what is on disk. Written independently they both looked right and the
+ * later write silently undid the earlier one — the lead-quieter check went green
+ * in the control run, which is precisely the failure this whole idea exists to
+ * catch. */
+async function stageMutations() {
+  const wanted = ONLY ? edits.filter((e) => e.key === ONLY) : edits;
+  if (ONLY && !wanted.length) {
+    console.error(`No control is called "${ONLY}". They are: ${edits.map((e) => e.key).join(', ')}.`);
+    process.exit(1);
   }
-  if (!applies) {
-    /* Recorded against the file, so the message below names which one moved. */
-    const entry = already ?? mutations.at(-1);
-    entry.applies = false;
-    entry.what = already ? entry.what : what;
+  const staged = [];
+  for (const edit of wanted) {
+    const target = join(ROOT, edit.relative);
+    const already = staged.find((m) => m.target === target);
+    const original = already ? already.original : await readFile(target, 'utf8');
+    const from_ = already ? already.broken : original;
+    const broken = from_.replace(edit.from, edit.to);
+    const applies = broken !== from_;
+    if (already) {
+      already.broken = broken;
+      already.applies = already.applies && applies;
+      already.what += `, ${edit.what}`;
+    } else {
+      staged.push({ target, original, broken, what: edit.what, applies });
+    }
   }
-  return target;
+  return { staged, mustGoRed: [...new Set(wanted.flatMap((e) => e.mustGoRed))] };
 }
 
 /* ONE — the audio graph. The right side of the lead-quieter tail is added to
@@ -92,17 +115,17 @@ async function control(relative, from, to, what) {
    (The first control tried here was removing the Content-Length header, which
    had caused a real bug — the clock stuck at 0:00. It turned nothing red,
    because the wait for a late-arriving length covers a short file on its own.) */
-await control('apps/desktop/dist/renderer/audio/graph.js',
+control('apps/desktop/dist/renderer/audio/graph.js',
   'midR.gain.value = -MIDDLE_CANCEL_GAIN;',
-  'midR.gain.value = MIDDLE_CANCEL_GAIN;', 'the audio graph');
+  'midR.gain.value = MIDDLE_CANCEL_GAIN;', 'the audio graph', 'graph');
 
 /* TWO — the picture rather than the sound. The graph flip cannot reach the
    waveform, so the stereo check would pass whatever happened. This draws the
    lower half of the wave from the LEFT channel — precisely the mono-looking
    picture Ted asked to be rid of, and it looks entirely reasonable on screen. */
-await control('apps/desktop/dist/renderer/ui/app.js',
+control('apps/desktop/dist/renderer/ui/app.js',
   '{ data: peaks.right, mid: songH * 0.73',
-  '{ data: peaks.left, mid: songH * 0.73', 'the stereo waveform');
+  '{ data: peaks.left, mid: songH * 0.73', 'the stereo waveform', 'wave');
 
 /* THREE — the layout. Dropping the line breaks out of the words under the
    record buttons is the realistic version of this mistake: "Record new" on one
@@ -110,24 +133,24 @@ await control('apps/desktop/dist/renderer/ui/app.js',
    and the dials drop to a row of their own taking 88 pixels of case with them.
    A wider max-width alone does nothing, because a <br> breaks whatever the CSS
    says. */
-await control('apps/desktop/dist/renderer/ui/app.css',
+control('apps/desktop/dist/renderer/ui/app.css',
   '.t-name { max-width: 4.4rem;',
-  '.t-name br { display: none } .t-name { max-width: 14rem;', 'the transport layout');
+  '.t-name br { display: none } .t-name { max-width: 14rem;', 'the transport layout', 'layout');
 
 /* FOUR — the skins. A skin listed in the picker and never wired looks exactly
    like one that works until somebody clicks it. */
-await control('apps/desktop/dist/renderer/ui/skins.css',
+control('apps/desktop/dist/renderer/ui/skins.css',
   "html[data-skin='daylight'] {",
-  "html[data-skin='daylight-not-wired'] {", 'a wired skin');
+  "html[data-skin='daylight-not-wired'] {", 'a wired skin', 'skin');
 
 /* FIVE — the file that leaves the app. "Saved as C:\\..." appears whatever the
    encoder produced, so without this the export checks would prove only that a
    file of roughly the right size arrived. This feeds the MP3 encoder silence
    while the slicing, the writes, the progress and the message all carry on
    looking perfect. */
-await control('apps/desktop/dist/renderer/workers/export-worker.js',
+control('apps/desktop/dist/renderer/workers/export-worker.js',
   'left[held] = samples[f * channels] ?? 0;',
-  'left[held] = 0;', 'the MP3 encoder');
+  'left[held] = 0;', 'the MP3 encoder', 'export');
 
 /* SIX — the microphones. Splitting four inputs and then reading the SAME output
    of the splitter for every one of them is the realistic version of this
@@ -140,17 +163,51 @@ await control('apps/desktop/dist/renderer/workers/export-worker.js',
    channel count and mode. It turned nothing red, because 'max' really does
    follow the input's four channels — so the setting is defensive rather than
    load-bearing, and a control has to break something that is.) */
-await control('apps/desktop/dist/renderer/audio/graph.js',
+control('apps/desktop/dist/renderer/audio/graph.js',
   'splitter.connect(gain, c);',
-  'splitter.connect(gain, 0);', 'one microphone per input');
+  'splitter.connect(gain, 0);', 'one microphone per input', 'mics');
 
+/* SEVEN — the stretch engine itself, put back the way it silently died.
+   Built with no inputs, its processor reaches for a live input it has not got
+   the first time it renders a block while paused, throws, and is destroyed by
+   the browser. Nothing is reported anywhere: the node still answers, still
+   reports its position, still accepts a new speed. It just never makes a sound
+   again. This is the fault that left Ted with a player that looked perfect and
+   played nothing. */
+control('apps/desktop/dist/renderer/audio/player.js',
+  'numberOfInputs: 1, numberOfOutputs: 1, outputChannelCount: [2],',
+  'numberOfInputs: 0, outputChannelCount: [2],', 'the stretch engine', 'engine',
+  ['and the speed engine actually makes a sound',
+    'and it is still playing after the engine takes over']);
+
+/* EIGHT — the handover, decided before the song was playing rather than at the
+   moment it happens. This is the old ordering in one line: the engine lands
+   scheduled off while the song is playing, the element is pulled out of the
+   graph, and the sound stops with every label still correct. */
+control('apps/desktop/dist/renderer/audio/player.js',
+  'const wasPlaying = this.playing;          // NOW, not before the decode',
+  'const wasPlaying = false;', 'reading the state at the handover', 'handover',
+  ['and the transport still says it is playing',
+    'and it is still playing after the engine takes over']);
+
+/* NINE — the guard that throws away an engine built for a song that has gone.
+   Without it the finished build wires itself into whatever song is open now. */
+control('apps/desktop/dist/renderer/audio/player.js',
+  'if (startedAt !== this.generation || this.song !== startedFor || !this.el) {',
+  'if (false) {', 'throwing away a stale engine', 'stale',
+  ['and the engine built for the first one is thrown away, not wired in']);
+
+let mutations = [];
+let mustGoRed = [];
 if (NEGATIVE) {
+  ({ staged: mutations, mustGoRed } = await stageMutations());
   const dead = mutations.filter((m) => !m.applies);
   if (dead.length) {
     console.error(`A negative control no longer applies: ${dead.map((m) => m.what).join(', ')}.`);
     console.error('Nothing was written. Run "npm run build:code -w tva-player" and try again.');
     process.exit(1);
   }
+  console.log(`Controls in force: ${mutations.map((m) => m.what).join(', ')}\n`);
   for (const m of mutations) await writeFile(m.target, m.broken);
 }
 
@@ -172,7 +229,11 @@ const userDataDir = join(work, 'ud');
 const musicDir = join(work, 'Music');
 await mkdir(musicDir, { recursive: true });
 await makeMp3(join(musicDir, 'Shenandoah.mp3'), { seconds: 4 });
-await makeMp3(join(musicDir, 'Danny Boy.mp3'), { seconds: 4 });
+/* LONG ENOUGH TO STILL BE PLAYING when a check stops to listen. The speed
+   engine takes seconds to build, and the checks for the faults around that
+   build measure the sound on both sides of it — which a four-second song
+   cannot survive. Nothing asserts this song's length. */
+await makeMp3(join(musicDir, 'Danny Boy.mp3'), { seconds: 30 });
 /* Takes go into the work folder, not into the real Music folder. A test must
    never leave anything behind on the machine that ran it. */
 const takesDir = join(work, 'Takes');
@@ -231,11 +292,24 @@ try {
   check('and the playing lamp is lit',
     await page.evaluate(() => document.getElementById('lamp-play').classList.contains('lit')));
 
+  /* AND SOUND ACTUALLY COMES OUT. Every check above this line reads a label the
+     app writes about itself, and both faults that reached Ted left every one of
+     those labels correct while the speakers stayed silent. This listens at the
+     master bus — see scripts/sound-meter.mjs. */
+  {
+    const playing = await soundCameOut(page, 1200);
+    check('and sound actually comes out', playing.peak > AUDIBLE, heard(playing));
+  }
+
   const movedTo = await page.textContent('#t-now');
   await page.click('#play');
   await page.waitForTimeout(600);
   check('pause really stops it', (await page.textContent('#t-now')) === movedTo,
     `paused at ${movedTo}`);
+  {
+    const paused = await soundCameOut(page, 900);
+    check('and the sound stops with it', paused.peak <= AUDIBLE, heard(paused));
+  }
 
   console.log('\n--- dragging a knob ---');
   {
@@ -399,6 +473,210 @@ try {
       `transport says ${after.playing ? 'Pause' : 'Play'}`);
 
     await page.dblclick('.knob[data-knob="speed"]').catch(() => {});
+  }
+
+  console.log('\n--- the speed engine on a song of a real length ---');
+  {
+    /* THE ENGINE DIED THE MOMENT IT WAS BUILT, AND SAID NOTHING.
+     *
+     * It was created with no inputs, which is honest — it plays a song held in
+     * memory and there is nothing to feed it. But its processor reaches for a
+     * live input it has not got the first time it renders a block while paused.
+     * It throws, the browser destroys the processor on the spot, and that is
+     * reported nowhere: no exception, nothing in the console. The node carries on
+     * answering. It reports its position, it accepts a new speed, it says it is
+     * playing. It simply never makes another sound, and nothing but reopening the
+     * app gets any back — which is exactly what Ted found.
+     *
+     * A LONG SONG ON PURPOSE. Whether the engine is asked for a block before it
+     * has finished being handed the song depends on how much song there is. On
+     * the six-second file the rest of these checks use it does not reproduce at
+     * all, which is precisely how this shipped with 190 checks green. Ted's songs
+     * are three to five minutes. */
+    await page.evaluate(() => window.__tvaSlowEngine(0));
+    const longSong = page.locator('#songlist .song', { hasText: 'Danny' });
+    await longSong.click();
+    await page.waitForFunction(
+      () => !document.getElementById('play').disabled
+        && document.getElementById('now-name').textContent.includes('DANNY'),
+      { timeout: 40000 }).catch(() => {});
+    /* DECIDED FROM THE PLAYER, NOT FROM THE BUTTON'S LABEL. The label is painted
+       by an event and can still be showing the last song's state for a moment
+       after a new one opens, so a check that reads it can decide not to press
+       play and then measure the silence it caused itself. */
+    if (!(await page.evaluate(() => window.__tvaPlayerState().playing))) await page.click('#play');
+    await page.waitForFunction(
+      () => window.__tvaPlayerState().playing, { timeout: 15000 }).catch(() => {});
+    await page.waitForTimeout(800);
+    {
+      const m = await soundCameOut(page, 700);
+      const st = await page.evaluate(() => ({
+        ...window.__tvaPlayerState(),
+        msg: document.getElementById('msg').textContent,
+        name: document.getElementById('now-name').textContent,
+        vol: window.__tvaGraph().master.gain.value,
+        track: window.__tvaGraph().trackGain.gain.value,
+      }));
+      check('the long song plays', m.peak > AUDIBLE, `${heard(m)} ${JSON.stringify(st)}`);
+    }
+
+    await page.evaluate(() => {
+      const el = document.getElementById('speed');
+      el.value = '89';
+      el.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    await page.waitForFunction(
+      () => window.__tvaMode && window.__tvaMode() === 'practice',
+      { timeout: 60000 }).catch(() => {});
+    const on = await soundCameOut(page, 1500);
+    const mode = await page.evaluate(() => window.__tvaMode());
+    /* ON THE ENGINE, AND MAKING A SOUND. Both, because either alone can be true
+       while the app is broken: an engine that died is put back onto plain
+       playback, which sounds right and is not what was asked for; and an engine
+       that landed switched off is on the right mode and silent. */
+    check('and the speed engine actually makes a sound',
+      on.peak > AUDIBLE && mode === 'practice', `${heard(on)}, mode ${mode}`);
+
+    await page.dblclick('.knob[data-knob="speed"]').catch(() => {});
+    await page.waitForTimeout(300);
+    if ((await page.getAttribute('#play', 'aria-label')) === 'Pause') await page.click('#play');
+  }
+
+  console.log('\n--- a song with a speed saved on it, and play pressed while it opens ---');
+  {
+    /* THE STATE TED'S APP IS IN EVERY MORNING, and the one state the checks went
+     * out of their way never to be in.
+     *
+     * "At first it said nothing. I noticed the speed was at 89% so I double
+     * clicked to reset the speed to 100%. Still nothing, but then I closed it and
+     * reopened, opened a song and it played."
+     *
+     * A song that has a speed saved on it starts building the engine the moment
+     * it opens — several seconds of fetching, decoding, compiling and registering
+     * a worklet. The handover used to decide whether the song was playing at the
+     * START of all that. Press play during it and the finished handover
+     * disconnected a PLAYING element from the speakers and scheduled the engine
+     * switched off: silence, no message, every label still correct, and only
+     * reopening the app could reconnect it.
+     *
+     * Play is pressed WITHOUT waiting, on purpose. The first version of this
+     * check waited 2500 ms after opening, which waits out the exact window the
+     * fault lives in. It passed, and the app was broken. */
+    // Back on the song the rest of this block reopens — the block above left
+    // the long one open.
+    await page.evaluate(() => window.__tvaOpenFirstArg());
+    await page.waitForFunction(
+      () => document.getElementById('now-name').textContent.includes('TEST SONG')
+        && !document.getElementById('play').disabled,
+      { timeout: 30000 }).catch(() => {});
+    await page.evaluate(() => window.__tvaSlowEngine(2000));
+
+    await page.evaluate(() => {
+      const el = document.getElementById('speed');
+      el.value = '89';
+      el.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    await page.waitForFunction(
+      () => window.__tvaMode && window.__tvaMode() === 'practice',
+      { timeout: 40000 }).catch(() => {});
+    await page.waitForTimeout(1200);          // the 900 ms save, with room
+
+    await page.evaluate(() => { window.__tvaOpenFirstArg(); });
+    await page.waitForFunction(
+      () => !document.getElementById('play').disabled && window.__tvaMode() === 'straight',
+      { timeout: 40000 }).catch(() => {});
+    check('the saved speed comes back with the song',
+      (await page.evaluate(() => window.__tvaSpeed())) === 0.89,
+      `speed is ${await page.evaluate(() => window.__tvaSpeed())}`);
+
+    await page.evaluate(() => window.__tvaSeek(0));
+    await page.click('#play');                // pressed WHILE the engine is building
+    const during = await soundCameOut(page, 1200);
+    check('it plays while the speed engine is still being built',
+      during.peak > AUDIBLE, heard(during));
+
+    await page.waitForFunction(
+      () => window.__tvaMode() === 'practice', { timeout: 40000 }).catch(() => {});
+    /* READ THE MOMENT THE ENGINE LANDS. This is the instant the handover used to
+       flip the transport back to Play with the song still running — so it is read
+       before the listening below, which on a six-second song can outlast it. */
+    check('and the transport still says it is playing',
+      (await page.getAttribute('#play', 'aria-label')) === 'Pause',
+      `transport says ${await page.getAttribute('#play', 'aria-label')}`);
+    const after = await soundCameOut(page, 1500);
+    const onEngine = await page.evaluate(() => window.__tvaMode());
+    check('and it is still playing after the engine takes over',
+      after.peak > AUDIBLE && onEngine === 'practice',
+      `${heard(after)}, mode ${onEngine}`);
+
+    await page.evaluate(() => window.__tvaSlowEngine(0));
+    if ((await page.getAttribute('#play', 'aria-label')) === 'Pause') await page.click('#play');
+    await page.dblclick('.knob[data-knob="speed"]').catch(() => {});
+    await page.waitForTimeout(400);
+  }
+
+  console.log('\n--- another song opened while an engine is still building ---');
+  {
+    /* A BUILD THAT LANDS ON THE WRONG SONG. Emptying the player for a new song
+     * cleared the guard that stops two builds at once, but not the build itself.
+     * It finished a few seconds later and wired ITSELF in: the new song's element
+     * was disconnected, the clock reported the OLD song's length, and pressing
+     * play played the old song's audio. Neither entry point could recover,
+     * because both give up the moment the mode says 'practice'. */
+    await page.evaluate(() => window.__tvaSlowEngine(2500));
+
+    await page.evaluate(() => { window.__tvaOpenFirstArg(); });
+    await page.waitForFunction(
+      () => !document.getElementById('play').disabled && window.__tvaMode() === 'straight',
+      { timeout: 40000 }).catch(() => {});
+    const first = await page.textContent('#now-name');
+
+    // A build is started for THIS song, and is still running a moment later.
+    await page.evaluate(() => {
+      const el = document.getElementById('speed');
+      el.value = '75';
+      el.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    await page.waitForTimeout(400);
+    check('a speed engine is being built for the first song',
+      (await page.evaluate(() => window.__tvaMode())) === 'straight',
+      'still on plain playback, so the build has not landed yet');
+
+    /* And another song is opened before that build can land — by clicking it in
+       the library, which is what a person does, and which opens AND plays it. */
+    await page.click('#songlist .song:last-child');
+    await page.waitForFunction(
+      (was) => document.getElementById('now-name').textContent !== was,
+      first, { timeout: 20000 });
+    const second = await page.textContent('#now-name');
+    check('the song that was opened second is the one that is open',
+      second !== first && second.length > 0, `${first} -> ${second}`);
+
+    await page.waitForTimeout(4000);          // longer than the build it left behind
+    const held = await page.evaluate(() => ({
+      name: document.getElementById('now-name').textContent,
+      mode: window.__tvaMode(),
+      total: document.getElementById('t-total').textContent,
+    }));
+    check('and the engine built for the first one is thrown away, not wired in',
+      held.name === second && held.mode !== 'practice',
+      `${held.name}, mode ${held.mode}, length ${held.total}`);
+
+    await page.evaluate(() => window.__tvaSeek(0));
+    if ((await page.getAttribute('#play', 'aria-label')) === 'Play') await page.click('#play');
+    const still = await soundCameOut(page, 1200);
+    check('and the song that is open still makes a sound',
+      still.peak > AUDIBLE, heard(still));
+
+    await page.evaluate(() => window.__tvaSlowEngine(0));
+    await page.click('#play').catch(() => {});
+    await page.evaluate(() => window.__tvaOpenFirstArg());
+    await page.waitForFunction(
+      () => document.getElementById('now-name').textContent.includes('TEST SONG'),
+      { timeout: 20000 });
+    await page.waitForTimeout(500);
+    await page.dblclick('.knob[data-knob="speed"]').catch(() => {});
+    await page.waitForTimeout(400);
   }
 
   console.log('\n--- the dials themselves ---');
@@ -1799,9 +2077,21 @@ try {
      one was changed, so one file is exactly right. */
   check('a song that was set up gets a settings file of its own', Boolean(stored),
     `${saved.length} file(s) in songs/`);
+  /* AND A SONG MERELY OPENED AND LEFT ALONE GETS NOTHING. Named rather than
+     counted: a song that was PLAYED is entitled to a file, because remembering
+     where you got to is the point of it, and one of the checks above plays a
+     second song. Counting the files made that read as a fault. These two are
+     opened by the multi-select and never touched again, so a file for either of
+     them would mean the app is writing for songs nobody changed. */
+  const untouched = [];
+  for (const name of saved) {
+    if (!name.endsWith('.json') || name.includes('conflict')) continue;
+    const parsed = JSON.parse(await readFile(join(settingsRoot, 'songs', name), 'utf8'));
+    if (/^(second\.mp3|third\.wav)::/.test(parsed.songKey ?? '')) untouched.push(parsed.songKey);
+  }
   check('and a song merely opened and left alone does not',
-    saved.filter((f) => f.endsWith('.json') && !f.includes('conflict')).length === 1,
-    'nothing is written for a song nobody changed');
+    untouched.length === 0,
+    untouched.length ? `written for ${untouched.join(', ')}` : 'nothing is written for a song nobody changed');
 
   if (stored) {
     check('holding the speed that was set', stored.settings.speed === 0.75,
@@ -1827,10 +2117,25 @@ try {
 const failed = results.filter((r) => !r.passed);
 console.log(`\n${results.length - failed.length}/${results.length} checks passed.`);
 if (NEGATIVE) {
-  const wanted = failed.length > 0;
+  /* NAMED, NOT COUNTED. "Something went red" is a weak bar — a control can break
+     something unrelated and still look like proof. These are the checks the
+     controls above exist for, and if one of them stayed green with its fault put
+     back, then it is measuring nothing and the run says so. */
+  const red = new Set(failed.map((r) => r.name));
+  /* ENFORCED ONLY WHEN ONE CONTROL IS RUN ON ITS OWN. With every fault put back
+     at once they mask each other — killing the stretch engine also stops a stale
+     engine wiring itself into the wrong song, so the check for that stays green
+     and would look like proof of nothing. The run with everything broken still
+     has to go red; which check goes red for which fault is settled one at a
+     time, which is what the `--only=` runs in CI are for. */
+  const stayedGreen = ONLY ? mustGoRed.filter((name) => !red.has(name)) : [];
+  const wanted = failed.length > 0 && stayedGreen.length === 0;
   console.log(wanted
-    ? `\nNegative control worked: ${failed.length} check(s) went red with the graph broken.`
-    : '\nNegative control FAILED: every check passed with the graph broken, so they prove nothing.');
+    ? `\nNegative control worked: ${failed.length} check(s) went red with the app broken.`
+    : stayedGreen.length
+      ? `\nNegative control FAILED: these stayed green with their fault put back, `
+        + `so they prove nothing:\n  ${stayedGreen.join('\n  ')}`
+      : '\nNegative control FAILED: every check passed with the app broken, so they prove nothing.');
   process.exit(wanted ? 0 : 1);
 }
 process.exit(failed.length ? 1 : 0);

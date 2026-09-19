@@ -45,6 +45,21 @@ jobs:
       - name: And prove those checks can fail
         run: xvfb-run -a node scripts/app-harness.mjs --negative-control
 
+      # ONE FAULT AT A TIME, because with every fault put back at once they mask
+      # each other: killing the stretch engine also stops a stale engine wiring
+      # itself into the wrong song, so the check for that stayed green and looked
+      # like proof. Each of these puts back exactly one of the three faults that
+      # left Ted with a player that made no sound, and NAMES the checks that have
+      # to go red for it.
+      - name: And prove the silent-engine check can fail
+        run: xvfb-run -a node scripts/app-harness.mjs --negative-control --only=engine
+
+      - name: And prove the handover check can fail
+        run: xvfb-run -a node scripts/app-harness.mjs --negative-control --only=handover
+
+      - name: And prove the stale-engine check can fail
+        run: xvfb-run -a node scripts/app-harness.mjs --negative-control --only=stale
+
       # THE PACKAGED APP, which is not the same thing as the source folder.
       # Packaging puts everything in an asar archive and changes how files are
       # found inside it, so the protocol that serves the page, the worklet

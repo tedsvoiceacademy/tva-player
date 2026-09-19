@@ -39,28 +39,41 @@ public class Playback extends Plugin {
         };
     }
 
-    /** Playing, and what. Safe to call repeatedly — it updates rather than restarts. */
+    /** Playing, and what. Safe to call repeatedly — it updates rather than restarts.
+     *
+     * IT ASKS FOR NOTHING. This used to request the notification permission from
+     * right here, which put Android's dialog on the screen in the middle of the
+     * first song a person ever played — Ted's words: "There was a pop up to
+     * allow something. i didn't read it but assumed it was microphone." A person
+     * cannot answer a question they were not expecting in the middle of
+     * something else, and an app should not ask one there. The page asks at
+     * start-up instead, in its own words first: see askAboutNotifications. */
     @PluginMethod
     public void playing(PluginCall call) {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU
-            && getPermissionState("notifications") != com.getcapacitor.PermissionState.GRANTED) {
-            requestPermissionForAlias("notifications", call, "afterNotificationPermission");
+        send(call, true);
+        call.resolve(new JSObject().put("canKeepPlaying", allowed()));
+    }
+
+    /** Ask Android for the notification permission, on purpose and at a moment
+     *  of the page's choosing. Answered either way — the song plays regardless;
+     *  what the permission buys is the song carrying on with the screen off. */
+    @PluginMethod
+    public void askAboutNotifications(PluginCall call) {
+        if (allowed()) {
+            call.resolve(new JSObject().put("canKeepPlaying", true));
             return;
         }
-        send(call, true);
-        call.resolve();
+        requestPermissionForAlias("notifications", call, "afterNotificationPermission");
     }
 
     @com.getcapacitor.annotation.PermissionCallback
     private void afterNotificationPermission(PluginCall call) {
-        /* Granted or not, the song is still going to play. Without the
-           permission it simply stops when the screen does, and the page is told
-           so it can say that in words rather than leaving it a mystery. */
-        send(call, true);
-        JSObject answer = new JSObject();
-        answer.put("canKeepPlaying",
-            getPermissionState("notifications") == com.getcapacitor.PermissionState.GRANTED);
-        call.resolve(answer);
+        call.resolve(new JSObject().put("canKeepPlaying", allowed()));
+    }
+
+    private boolean allowed() {
+        return Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU
+            || getPermissionState("notifications") == com.getcapacitor.PermissionState.GRANTED;
     }
 
     @PluginMethod
@@ -77,9 +90,7 @@ public class Playback extends Plugin {
 
     @PluginMethod
     public void canKeepPlaying(PluginCall call) {
-        boolean allowed = Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU
-            || getPermissionState("notifications") == com.getcapacitor.PermissionState.GRANTED;
-        call.resolve(new JSObject().put("canKeepPlaying", allowed));
+        call.resolve(new JSObject().put("canKeepPlaying", allowed()));
     }
 
     private void send(PluginCall call, boolean playing) {

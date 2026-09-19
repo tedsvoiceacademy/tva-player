@@ -51,6 +51,8 @@ let tunerTimer = null;
 let song = null;
 let file = null;
 let settings = { ...DEFAULT_PLAYER_SETTINGS };
+/* Zero in the app. Set only by a check — see __tvaSlowEngine. */
+let slowEngineMs = 0;
 let duration = 0;
 let peaks = null;
 let dragRegion = null;
@@ -140,9 +142,17 @@ async function ensurePracticeMode() {
   }
 
   say('Getting the speed and key controls ready…');
+  /* WHICH SONG THIS WAS STARTED FOR. Building the engine takes seconds, and a
+     song can be opened in the middle of it. The player throws away an engine
+     built for a song that has gone; this is the half that stops the page then
+     painting a message about it. */
+  const startedFor = song;
   let node;
   try {
-    node = await player.enterPracticeMode(async (url) => (await fetch(url)).arrayBuffer());
+    node = await player.enterPracticeMode(async (url) => {
+      if (slowEngineMs > 0) await new Promise((r) => setTimeout(r, slowEngineMs));
+      return (await fetch(url)).arrayBuffer();
+    });
   } catch (err) {
     /* IT SAYS SO, AND THE SONG KEEPS PLAYING.
      *
@@ -152,12 +162,14 @@ async function ensurePracticeMode() {
      * Manager to hear anything again. The player puts itself back to normal
      * speed now; this is the part that tells him why the control refused,
      * instead of a dial that moves and a room that goes quiet. */
+    if (song !== startedFor) return false;    // another song is open; nothing to say
     say(`${err?.message ?? 'The speed and key controls could not start.'} `
       + 'The song is still playing at normal speed.');
     settings = sanitizePlayerSettings({ ...settings, speed: 1, halfSteps: 0 });
     paintControls();
     return false;
   }
+  if (song !== startedFor) return false;      // another song is open; nothing to say
   if (!node) { say('The speed and key controls could not start for this song.'); return false; }
   // Whatever the knobs say NOW, not what they said when this started.
   player.applyPractice(settings);
@@ -738,6 +750,15 @@ function toldThePlatform(state) {
 }
 
 player.onState = (state) => {
+  /* The speed engine was destroyed by the browser and the player has put the
+     song back on normal playback. Said out loud, with the dials put back to
+     match what is actually being heard. */
+  if (state === 'engine-died') {
+    say('The speed and key engine stopped, so the song is playing at normal speed '
+      + 'again from where it was. Setting the speed again will start a fresh one.');
+    settings = sanitizePlayerSettings({ ...settings, speed: 1, halfSteps: 0 });
+    paintControls();
+  }
   const playing = state === 'playing';
   /* A class, not the hidden attribute. Measured in the real window, both SVGs
      computed to display:block with hidden set, so the button showed the pause
@@ -756,7 +777,14 @@ player.onState = (state) => {
 /* The lock screen, the notification, and the buttons on a pair of headphones.
    They reach the same functions the buttons on screen do — there is one play
    and one pause, not a second set that can disagree with the first. */
+/* EVERY ORDER THE PHONE GIVES, kept. A song that stops has two very different
+   causes — the phone told it to, or the sound simply went away — and they look
+   identical from outside. The check on a real phone reads this to tell them
+   apart. It is a short list of small objects and is never trimmed because it
+   never grows: these arrive when a person presses something. */
+window.__tvaNativeCommands = [];
 tellPlatform('onPlaybackCommand', (action) => {
+  window.__tvaNativeCommands.push({ action, at: Date.now() });
   if (action === 'play') { player.play().catch(() => {}); return; }
   if (action === 'pause') { player.pause(); saveSoon(); return; }
   if (action === 'stop') { player.stop(); saveSoon(); return; }
@@ -1044,7 +1072,7 @@ window.tva.onReady(async (info) => {
     say(`Another app is already using these keys, so they will not reach this one: `
       + `${info.shortcutsTaken.join(', ')}.`);
   }
-  window.tva.loadSettings().then((s) => {
+  window.tva.loadSettings().then(async (s) => {
     /* Before anything is shown. The window is created hidden and revealed on
        ready-to-show, so applying it here means no flash of the wrong one. */
     const skin = applySkin(s?.skin ?? 'navy');
@@ -1052,9 +1080,43 @@ window.tva.onReady(async (info) => {
     if (Number.isFinite(s?.latencyMs)) $('latency').value = String(s.latencyMs);
     if (s?.oneSpeaker) {
       $('onespk').checked = true;
-      player.setTail({ leadQuieter: false, oneSpeaker: true });
+      /* WHATEVER THE SONG SAYS, NOT false. This is read from disk and applied
+         whenever it arrives, which can be after a song has already opened and
+         set its own lead-quieter. Writing false here switched that back off
+         behind the person's back. */
+      player.setTail({ leadQuieter: settings.leadQuieter, oneSpeaker: true });
+    }
+
+    /* THE OUTPUT DEVICE WAS SAVED AND NEVER READ BACK. Choosing an interface or
+       a pair of headphones held for that session and then quietly went back to
+       whatever Windows is set to on the next start — which, on a machine with
+       something plugged in, is its own "it won't play". */
+    if (s?.outputDevice) {
+      await refreshOutputs();
+      $('out-pick').value = s.outputDevice;
+      await player.setOutputDevice(s.outputDevice);
     }
   });
+
+  /* THE NOTIFICATION PERMISSION, ASKED WHEN THE APP OPENS.
+   *
+   * It used to be asked from inside the first press of play, so Android's dialog
+   * appeared over a song that had just started: "There was a pop up to allow
+   * something. i didn't read it but assumed it was microphone." Android's own
+   * wording only asks whether the app may send notifications, which tells nobody
+   * why a music app wants one. So the app says what it is for first, and the
+   * dialog follows a moment later. On Windows this function does not exist and
+   * nothing happens. */
+  if (typeof window.tva.askAboutNotifications === 'function') {
+    say('In a moment the phone will ask whether this app may show a notification. '
+      + 'Saying yes is what keeps a song playing when the screen goes off.');
+    setTimeout(() => {
+      Promise.resolve(window.tva.askAboutNotifications()).then((allowed) => {
+        say(allowed ? '' : 'Songs will stop when the screen goes off. You can turn '
+          + 'notifications on for TVA Player in the phone\u2019s Settings whenever you like.');
+      }).catch(() => say(''));
+    }, 2600);
+  }
 });
 
 /* DRAGGING A SONG IN.
@@ -1117,9 +1179,29 @@ window.addEventListener('resize', () => { drawWave(); });
  * still in a state that can play. Without it the recovery path would never run
  * outside the fault itself. */
 window.__tvaFailEngineOnce = () => { player.failEngineOnce = true; };
+/* HOW LONG THE ENGINE TAKES TO BUILD, made a fixed size for the checks. The
+   fault this exists for is a race between pressing play and the engine landing,
+   and a race whose window depends on how fast the machine is is a check that
+   passes on a fast runner and ships a broken app. It also stands for the real
+   thing: a song in OneDrive that has to be downloaded before it can be decoded. */
+window.__tvaSlowEngine = (ms) => { slowEngineMs = Number(ms) || 0; return slowEngineMs; };
 
 window.__tvaSeek = (seconds) => { player.seek(seconds); return player.currentTime; };
 window.__tvaMode = () => player.mode;
+/* Everything a check needs to say WHY a song stopped, rather than only that it
+   did. The element's own paused flag matters as much as the player's opinion:
+   the two disagreeing is the shape of every fault in this area. */
+window.__tvaPlayerState = () => ({
+  mode: player.mode,
+  playing: player.playing,
+  practicePlaying: player._practicePlaying === true,
+  elPaused: player.el ? player.el.paused : null,
+  elEnded: player.el ? player.el.ended : null,
+  elTime: player.el ? Number(player.el.currentTime.toFixed(2)) : null,
+  practiceTime: Number(player.practiceTime.toFixed(2)),
+  engineStarts: player.engineStarts,
+  duration: Number((player.duration || 0).toFixed(2)),
+});
 window.__tvaGraph = () => player.graph;
 window.__tvaNext = () => playNext(1);
 /* Used only by the checks, to reach the "this song is too long for the speed

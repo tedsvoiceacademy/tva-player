@@ -25,10 +25,15 @@ export function getSharedAudioContext() {
   return sharedCtx;
 }
 
+/* Why the last resume failed, if it did. A swallowed failure here is silence
+   with no explanation anywhere — the player reads this and says it out loud. */
+export let lastResumeFailure = null;
+
 export async function resumeSharedAudio() {
   const ctx = getSharedAudioContext();
   if (ctx.state !== 'running') {
-    try { await ctx.resume(); } catch { /* it will be resumed by the next play */ }
+    try { await ctx.resume(); lastResumeFailure = null; }
+    catch (err) { lastResumeFailure = err?.message ?? String(err); }
   }
   return ctx;
 }

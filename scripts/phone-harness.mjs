@@ -290,9 +290,23 @@ try {
        — so "optional" must not quietly become "absent" here. */
     const has = await page.evaluate(() => [
       'nowPlaying', 'playbackStopped', 'onPlaybackCommand', 'canKeepPlaying',
+      'askAboutNotifications',
     ].filter((name) => typeof window.tva[name] !== 'function'));
-    check('the phone build really implements all four playback calls',
+    check('the phone build really implements all five playback calls',
       has.length === 0, has.join(', ') || 'all of them');
+
+    /* ASKED WHEN THE APP OPENS, NOT IN THE MIDDLE OF A SONG.
+       The notification permission used to be requested from inside the first
+       press of play, so Android's dialog appeared over a song that had just
+       started — "There was a pop up to allow something. i didn't read it but
+       assumed it was microphone." A person cannot answer a question they were
+       not expecting in the middle of something else. */
+    const asked = await page.evaluate(async () => {
+      const web = await import('./bridge/web-fallback.js');
+      return web.PlaybackWeb.said.some((x) => x.what === 'askAboutNotifications');
+    });
+    check('and it asks about notifications when the app opens', asked,
+      asked ? 'asked once, at start-up' : 'never asked');
 
     const told = await page.evaluate(async () => {
       const web = await import('./bridge/web-fallback.js');

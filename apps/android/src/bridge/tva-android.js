@@ -411,6 +411,13 @@ const tva = {
     const answer = await Playback.canKeepPlaying();
     return Boolean(answer?.canKeepPlaying);
   },
+  /* Asked once, when the app opens, and never in the middle of a song. The page
+     says what it is for in its own words before Android's own dialog appears —
+     see the comment in Playback.java. */
+  async askAboutNotifications() {
+    const answer = await Playback.askAboutNotifications();
+    return Boolean(answer?.canKeepPlaying);
+  },
 
   /* A song in OneDrive is not on the phone until something asks for it, and
      what happens then is a download over whatever signal there is. Fifteen

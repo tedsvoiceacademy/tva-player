@@ -9,7 +9,7 @@
 # a YAML string is reasoning nobody reads.
 #
 # It does three things: give the web view a microphone, run the checks, and then
-# put the three original faults back and require every check to go red.
+# put the original faults back and require every check to go red.
 set -euo pipefail
 
 APP=com.tedsvoiceacademy.player
@@ -59,7 +59,51 @@ echo "=== the app, on a phone ==="
 # so this costs a rebuild and three runs.
 # ---------------------------------------------------------------------------
 echo
-echo "=== putting the three faults back ==="
+echo "=== putting the faults back ==="
+
+# 0. THE APP TAKING AUDIO FOCUS AWAY FROM ITS OWN WEB VIEW.
+#
+#    This is the fault that gave Ted a split second of sound and then silence on
+#    every song: the service asked for AUDIOFOCUS_GAIN a moment after playback
+#    started, and the web view already held focus for the element it was playing.
+#    Whichever of the two lost, the song stopped, and there was no
+#    AUDIOFOCUS_GAIN branch to undo it.
+#
+#    IT IS PUT BACK IN FULL rather than as a flag, so the check is being asked
+#    the same question Ted's phone asked. The check counts focus requests as well
+#    as watching the song, which is what makes it bite on a build runner's
+#    emulator and not only on a handset that happens to reproduce the hand-off.
+python3 - <<'PUTITBACK'
+p = 'app/src/main/java/com/tedsvoiceacademy/player/PlaybackService.java'
+s = open(p, encoding='utf-8').read()
+s = s.replace("        if (playing) {\n            if (!awake.isHeld())",
+              "        if (playing) {\n            takeFocus();\n            if (!awake.isHeld())")
+s = s.replace("    @Override\n    public void onDestroy() {", '''    private android.media.AudioFocusRequest focus;
+
+    private void takeFocus() {
+        focusRequests++;
+        android.media.AudioManager audio =
+            (android.media.AudioManager) getSystemService(Context.AUDIO_SERVICE);
+        if (focus == null) {
+            focus = new android.media.AudioFocusRequest.Builder(
+                    android.media.AudioManager.AUDIOFOCUS_GAIN)
+                .setAudioAttributes(new android.media.AudioAttributes.Builder()
+                    .setUsage(android.media.AudioAttributes.USAGE_MEDIA)
+                    .setContentType(android.media.AudioAttributes.CONTENT_TYPE_MUSIC)
+                    .build())
+                .setOnAudioFocusChangeListener((change) -> {
+                    if (change == android.media.AudioManager.AUDIOFOCUS_LOSS
+                        || change == android.media.AudioManager.AUDIOFOCUS_LOSS_TRANSIENT) say("pause");
+                })
+                .build();
+        }
+        audio.requestAudioFocus(focus);
+    }
+
+    @Override
+    public void onDestroy() {''', 1)
+open(p, 'w', encoding='utf-8').write(s)
+PUTITBACK
 
 # 1. The microphone permission Capacitor asks for alongside RECORD_AUDIO.
 sed -i '/uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS"/d' \
@@ -100,12 +144,14 @@ expect_red () {
   fi
 }
 
+expect_red "keeping a song playing"         KeepsPlayingTest
 expect_red "recording"                      RecordingTest
 expect_red "opening a song from a content:// URI" SongFromThePickerTest
 expect_red "the layout at Android's larger text"  BigTextTest
 
 git checkout -- app/src/main/AndroidManifest.xml \
-  app/src/main/java/com/tedsvoiceacademy/player/Ranges.java
+  app/src/main/java/com/tedsvoiceacademy/player/Ranges.java \
+  app/src/main/java/com/tedsvoiceacademy/player/PlaybackService.java
 # phone.css is not in git here — it is built into the assets folder — so it is
 # put back the way it was made.
 (cd "$HERE" && node scripts/build-android.mjs > /dev/null && cd apps/android && npx cap sync android > /dev/null)

@@ -17,6 +17,7 @@ import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { makeSong, makeMp3 } from './make-test-song.mjs';
+import { soundCameOut, AUDIBLE, heard } from './sound-meter.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -70,6 +71,12 @@ const musicDir = join(work, 'Music');
 await mkdir(musicDir, { recursive: true });
 const songPath = join(musicDir, 'Packaged Test.mp3');
 await makeMp3(songPath, { seconds: 8, shape: true });
+/* AND ONE OF A REAL LENGTH. The speed engine died on being built, and whether
+   it is asked for a block before it has finished being handed the song depends
+   on how much song there is — on an eight-second file it does not reproduce at
+   all. Ted's songs are three to five minutes. */
+const longPath = join(musicDir, 'Packaged Long.mp3');
+await makeMp3(longPath, { seconds: 30 });
 
 await mkdir(join(work, 'ud', 'Player Settings'), { recursive: true });
 await writeFile(join(work, 'ud', 'Player Settings', 'settings.json'),
@@ -266,7 +273,7 @@ try {
 
   console.log('\n--- the library, from inside the package ---');
   check('the folder in the settings was read and listed',
-    (await page.$$('.raillist .song')).length === 1,
+    (await page.$$('.raillist .song')).length === 2,
     `${(await page.$$('.raillist .song')).length} songs`);
 
   console.log('\n--- a song too long to hold in memory ---');
@@ -356,6 +363,10 @@ try {
     if ((await page.getAttribute('#play', 'aria-label')) === 'Play') await page.click('#play');
     await page.waitForTimeout(500);
     check('a song is playing before the speed is touched', (await state()).playing);
+    {
+      const m = await soundCameOut(page, 900);
+      check('and sound is actually coming out of it', m.peak > AUDIBLE, heard(m));
+    }
 
     await page.evaluate(() => {
       const el = document.getElementById('speed');
@@ -370,6 +381,11 @@ try {
       `mode is ${slowed.mode}`);
     check('and the song is still playing afterwards', slowed.playing,
       `transport says ${slowed.playing ? 'Pause' : 'Play'}, message: ${slowed.msg}`);
+    {
+      const m = await soundCameOut(page, 1200);
+      check('and sound is still coming out of it', m.peak > AUDIBLE && slowed.mode === 'practice',
+        `${heard(m)}, mode ${slowed.mode}`);
+    }
 
     /* AND WHEN THE ENGINE CANNOT START AT ALL. Switching engines pauses the song
        before it does anything else, so a failure part-way took the sound away,
@@ -399,6 +415,59 @@ try {
       after.mode === 'straight', `mode is ${after.mode}`);
 
     await page.dblclick('.knob[data-knob="speed"]').catch(() => {});
+  }
+
+  console.log('\n--- the speed engine on a song of a real length ---');
+  {
+    /* THE ENGINE DIED THE MOMENT IT WAS BUILT, AND SAID NOTHING — built with no
+     * inputs, its processor reaches for a live input it has not got the first
+     * time it renders a block while paused, throws, and is destroyed by the
+     * browser with nothing reported anywhere. The node carries on answering
+     * every question correctly and never makes another sound.
+     *
+     * THIS IS THE COLD START, on the copy Ted installs: the packaged app has
+     * been launched once and this is the first speed engine it has ever built.
+     * That is the state his app is in every morning. */
+    const long = page.locator('.raillist .song', { hasText: 'Long' });
+    await long.click();
+    await page.waitForFunction(
+      () => !document.getElementById('play').disabled
+        && document.getElementById('now-name').textContent.includes('LONG'),
+      { timeout: 40000 }).catch(() => {});
+    /* Decided from the player, not from the button's label: the label is painted
+       by an event and can still show the last song's state for a moment. */
+    if (!(await page.evaluate(() => window.__tvaPlayerState().playing))) await page.click('#play');
+    await page.waitForFunction(
+      () => window.__tvaPlayerState().playing, { timeout: 15000 }).catch(() => {});
+    await page.waitForTimeout(800);
+    {
+      const m = await soundCameOut(page, 700);
+      check('the long song plays', m.peak > AUDIBLE, heard(m));
+    }
+
+    await page.evaluate(() => {
+      const el = document.getElementById('speed');
+      el.value = '89';
+      el.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    await page.waitForFunction(
+      () => window.__tvaMode && window.__tvaMode() === 'practice',
+      { timeout: 60000 }).catch(() => {});
+    const on = await soundCameOut(page, 1500);
+    const mode = await page.evaluate(() => window.__tvaMode());
+    /* ON THE ENGINE, AND MAKING A SOUND. Either alone can be true while the app
+       is broken: an engine that died is put back onto plain playback, which
+       sounds right and is not what was asked for; and an engine that landed
+       switched off is on the right mode and silent. */
+    check('and the speed engine, built out of the package, actually makes a sound',
+      on.peak > AUDIBLE && mode === 'practice', `${heard(on)}, mode ${mode}`);
+
+    await page.dblclick('.knob[data-knob="speed"]').catch(() => {});
+    await page.waitForTimeout(300);
+    if (await page.evaluate(() => window.__tvaPlayerState().playing)) await page.click('#play');
+    await page.evaluate(async () => { await window.__tvaOpenFirstArg(); });
+    await page.waitForFunction(
+      () => document.getElementById('t-total').textContent === '0:08', { timeout: 20000 }).catch(() => {});
   }
 
   console.log('\n--- recording, from inside the package ---');

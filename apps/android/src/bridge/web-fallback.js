@@ -211,6 +211,10 @@ export const PlaybackWeb = {
   async paused(info) { PlaybackWeb.said.push({ what: 'paused', ...info }); },
   async stopped() { PlaybackWeb.said.push({ what: 'stopped' }); },
   async canKeepPlaying() { return { canKeepPlaying: true }; },
+  async askAboutNotifications() {
+    PlaybackWeb.said.push({ what: 'askAboutNotifications' });
+    return { canKeepPlaying: true };
+  },
   addListener(event, handler) {
     PlaybackWeb.listeners.push({ event, handler });
     return { remove: () => {} };

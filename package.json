@@ -19,7 +19,10 @@
     "test:app:control": "node scripts/app-harness.mjs --negative-control",
     "test:no-native": "node scripts/no-native-modules.mjs",
     "build": "npm run build -w tva-player",
-    "release": "npm run release -w tva-player"
+    "release": "npm run release -w tva-player",
+    "test:app:control:engine": "node scripts/app-harness.mjs --negative-control --only=engine",
+    "test:app:control:handover": "node scripts/app-harness.mjs --negative-control --only=handover",
+    "test:app:control:stale": "node scripts/app-harness.mjs --negative-control --only=stale"
   },
   "devDependencies": {
     "@breezystack/lamejs": "^1.2.7",

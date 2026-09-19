@@ -281,12 +281,11 @@ export class Player {
         this.practiceTime = t;
         this.onTime(t, this.duration);
       });
-      /* TWO CALLS, NOT ONE, AND THE ORDER MATTERS.
-         Asking for a position and a start in the same breath — schedule({active:
-         true, input: at}) — leaves the engine silent: it reports the position
-         back, the player believes it is playing, and nothing comes out. Placing
-         the playhead first and then starting is the pair of calls the app has
-         always made from open and from play, and it is the pair that works. */
+      /* THE POSITION AND WHETHER IT IS RUNNING, IN ONE CALL. This was split into
+         two for a while, on the theory that asking for both at once was what
+         left the engine silent. It was not — the engine was already dead by this
+         point, for the reason set out in _buildPracticeEngine — and splitting it
+         changed nothing. One call, which is what the engine's own API expects. */
       built.node.schedule({ active: wasPlaying, input: at });
       this.practiceTime = at;
       this.onState(wasPlaying ? 'playing' : 'paused');

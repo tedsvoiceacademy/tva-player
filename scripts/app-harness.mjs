@@ -177,13 +177,14 @@ control('apps/desktop/dist/renderer/audio/graph.js',
 control('apps/desktop/dist/renderer/audio/player.js',
   'numberOfInputs: 1, numberOfOutputs: 1, outputChannelCount: [2],',
   'numberOfInputs: 0, outputChannelCount: [2],', 'the stretch engine', 'engine',
-  /* ONLY THE LONG-SONG CHECK. Whether the engine is asked for a block before it
-     has finished being handed the song depends on how much song there is, and on
-     the six-second file the rest of these checks use it does not reproduce at
-     all — which is the whole reason this fault shipped. Naming the six-second
-     check here would make this control fail on a fast runner and pass on a slow
-     one, which is worse than not naming it. */
-  ['and the speed engine actually makes a sound']);
+  /* ONLY THE STOPPED-SONG CHECK, which is the one that cannot come out
+     differently on a faster machine. The engine is destroyed by rendering one
+     block while it is not playing; on a song that IS playing, whether that ever
+     happens is a race, and it reproduced on the short file on the build runner
+     and on the long one here. Built on a stopped song it is certain. Naming a
+     racy check here would be a control that passes or fails on how fast the
+     machine is, which is worse than not naming it. */
+  ['and an engine built on a stopped song plays when play is pressed']);
 
 /* EIGHT — the handover, decided before the song was playing rather than at the
    moment it happens. This is the old ordering in one line: the engine lands
@@ -542,9 +543,43 @@ try {
     check('and the speed engine actually makes a sound',
       on.peak > AUDIBLE && mode === 'practice', `${heard(on)}, mode ${mode}`);
 
+    /* AND THE SAME AGAIN WITH THE SONG STOPPED, which is the case that cannot
+     * come out differently on a faster machine.
+     *
+     * The engine is destroyed by rendering ONE block while it is not playing. If
+     * the song is playing when the engine is built, whether that ever happens is
+     * a race between the first block and the samples being handed over — it
+     * reproduced on a six-second file on the build runner and on a thirty-second
+     * one here, which is a check that passes or fails on how fast the machine is.
+     *
+     * Built on a stopped song, the engine is switched off by definition, so the
+     * first block it renders is an inactive one and the fault is certain. It is
+     * also Ted's own sequence: the song opens with a speed already on it, and he
+     * presses play afterwards. */
     await page.dblclick('.knob[data-knob="speed"]').catch(() => {});
     await page.waitForTimeout(300);
-    if ((await page.getAttribute('#play', 'aria-label')) === 'Pause') await page.click('#play');
+    if (await page.evaluate(() => window.__tvaPlayerState().playing)) await page.click('#play');
+    await page.evaluate(() => { window.__tvaSeek(0); });
+    await page.waitForTimeout(300);
+
+    await page.evaluate(() => {
+      const el = document.getElementById('speed');
+      el.value = '85';
+      el.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    await page.waitForFunction(
+      () => window.__tvaMode && window.__tvaMode() === 'practice',
+      { timeout: 60000 }).catch(() => {});
+    await page.waitForTimeout(600);
+    if (!(await page.evaluate(() => window.__tvaPlayerState().playing))) await page.click('#play');
+    const woken = await soundCameOut(page, 1500);
+    const wokenMode = await page.evaluate(() => window.__tvaMode());
+    check('and an engine built on a stopped song plays when play is pressed',
+      woken.peak > AUDIBLE && wokenMode === 'practice', `${heard(woken)}, mode ${wokenMode}`);
+
+    await page.dblclick('.knob[data-knob="speed"]').catch(() => {});
+    await page.waitForTimeout(300);
+    if (await page.evaluate(() => window.__tvaPlayerState().playing)) await page.click('#play');
   }
 
   console.log('\n--- a song with a speed saved on it, and play pressed while it opens ---');

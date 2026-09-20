@@ -235,11 +235,22 @@ const userDataDir = join(work, 'ud');
 const musicDir = join(work, 'Music');
 await mkdir(musicDir, { recursive: true });
 await makeMp3(join(musicDir, 'Shenandoah.mp3'), { seconds: 4 });
-/* LONG ENOUGH TO STILL BE PLAYING when a check stops to listen. The speed
-   engine takes seconds to build, and the checks for the faults around that
-   build measure the sound on both sides of it — which a four-second song
-   cannot survive. Nothing asserts this song's length. */
-await makeMp3(join(musicDir, 'Danny Boy.mp3'), { seconds: 30 });
+/* FOUR MINUTES, WHICH IS THE LENGTH TED ACTUALLY OPENS.
+ *
+ * The fault that left his player silent — the speed engine's worklet destroyed on
+ * its first inactive render — did not reproduce on a short file. It turned up on
+ * a thirty-second song here and on a six-second song on the build runner, on the
+ * same code: whether the engine was ever asked for a block before it had finished
+ * being handed the song depended on the machine. A suite whose longest song was
+ * six seconds is how it shipped with every check green.
+ *
+ * The fix removes the crash rather than winning that race, so length should no
+ * longer matter — and the way to know that is to run it at the length he uses.
+ * Decoded, this is about 84 MB held in memory, with a second copy inside the
+ * worklet, which is also what his own songs cost.
+ *
+ * It takes about ten seconds to encode and nothing asserts its length. */
+await makeMp3(join(musicDir, 'Danny Boy.mp3'), { seconds: 240 });
 /* Takes go into the work folder, not into the real Music folder. A test must
    never leave anything behind on the machine that ran it. */
 const takesDir = join(work, 'Takes');

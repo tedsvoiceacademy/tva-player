@@ -71,12 +71,15 @@ const musicDir = join(work, 'Music');
 await mkdir(musicDir, { recursive: true });
 const songPath = join(musicDir, 'Packaged Test.mp3');
 await makeMp3(songPath, { seconds: 8, shape: true });
-/* AND ONE OF A REAL LENGTH. The speed engine died on being built, and whether
-   it is asked for a block before it has finished being handed the song depends
-   on how much song there is — on an eight-second file it does not reproduce at
-   all. Ted's songs are three to five minutes. */
+/* AND ONE OF A REAL LENGTH — four minutes, which is what Ted opens.
+ *
+ * The speed engine died on being built, and whether it is asked for a block
+ * before it has finished being handed the song depends on how much song there is:
+ * on an eight-second file it does not reproduce at all. This is the cold start on
+ * the copy he installs, at the length he installs it for. About ten seconds to
+ * encode, and nothing asserts its length. */
 const longPath = join(musicDir, 'Packaged Long.mp3');
-await makeMp3(longPath, { seconds: 30 });
+await makeMp3(longPath, { seconds: 240 });
 
 await mkdir(join(work, 'ud', 'Player Settings'), { recursive: true });
 await writeFile(join(work, 'ud', 'Player Settings', 'settings.json'),

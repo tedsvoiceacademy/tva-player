@@ -244,6 +244,10 @@ jobs:
           # eight-second file a little scheduling delay ends the song inside the
           # check and it goes red for a reason that has nothing to do with the
           # fault it exists for.
+          #
+          # THIS NUMBER IS ALSO WRITTEN IN Page.SONG_SECONDS, which is what the
+          # tests compare the clock against. CHANGE BOTH TOGETHER — raising it
+          # here alone turned a check red with "expected:<0:08> but was:<1:00>".
           node -e "import('./scripts/make-test-song.mjs').then(m => m.makeMp3('apps/android/android/app/src/androidTest/assets/song.mp3', { seconds: 60 }))"
           ls -l apps/android/android/app/src/androidTest/assets
 

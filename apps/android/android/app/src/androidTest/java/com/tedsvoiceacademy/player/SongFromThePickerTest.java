@@ -109,8 +109,9 @@ public class SongFromThePickerTest {
         page.waitUntil("and its length is read",
             "document.getElementById('t-total').textContent !== '0:00'",
             30_000, "document.getElementById('t-total').textContent");
-        assertEquals("The song is eight seconds long and the clock should say so.",
-            "0:08", page.eval("document.getElementById('t-total').textContent"));
+        assertEquals("The clock should say how long the song really is. Its length is"
+            + " set in one place — see Page.SONG_SECONDS.",
+            Page.songLength(), page.eval("document.getElementById('t-total').textContent"));
 
         /* describe() asks the provider for a display name. Without it a song is
            listed as the tail of a URI, which is unreadable and was one of the

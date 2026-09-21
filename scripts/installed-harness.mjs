@@ -487,6 +487,18 @@ try {
     await page.waitForFunction(
       () => window.__tvaPlayerState().playing, { timeout: 15000 }).catch(() => {});
     await page.waitForTimeout(600);
+
+    /* BEFORE THE DIAL IS TOUCHED, and said out loud. A song that never started
+       playing makes the engine land switched off, which measures as silence and
+       reads exactly like a broken engine. These two failures need telling apart
+       on a machine nobody can attach a debugger to. */
+    const monoBefore = await page.evaluate(() => window.__tvaPlayerState());
+    const monoHeard = await soundCameOut(page, 900);
+    check('the mono recording plays at all, before the speed is touched',
+      monoBefore.playing && monoHeard.peak > AUDIBLE,
+      `${heard(monoHeard)}, ${JSON.stringify(monoBefore)}, name `
+      + `${await page.textContent('#now-name')}, message ${await page.textContent('#msg')}`);
+
     await page.evaluate(() => {
       const el = document.getElementById('speed');
       el.value = '85';
@@ -496,10 +508,12 @@ try {
       () => window.__tvaMode && window.__tvaMode() === 'practice',
       { timeout: 60000 }).catch(() => {});
     const monoSound = await soundCameOut(page, 1200);
-    const monoMode = await page.evaluate(() => window.__tvaMode());
+    const monoAfter = await page.evaluate(() => window.__tvaPlayerState());
     check('a mono recording plays through the speed engine, out of the package',
-      monoSound.peak > AUDIBLE && monoMode === 'practice',
-      `${heard(monoSound)}, mode ${monoMode}`);
+      monoSound.peak > AUDIBLE && monoAfter.mode === 'practice',
+      `${heard(monoSound)}, ${JSON.stringify(monoAfter)}, `
+      + `sample rate ${await page.evaluate(() => window.__tvaGraph().ctx.sampleRate)}, `
+      + `message ${await page.textContent('#msg')}`);
     await page.dblclick('.knob[data-knob="speed"]').catch(() => {});
     await page.waitForTimeout(300);
     if (await page.evaluate(() => window.__tvaPlayerState().playing)) await page.click('#play');

@@ -820,9 +820,10 @@ try {
         { timeout: 60000 }).catch(() => {});
 
       const sound = await soundCameOut(page, 1200);
-      const mode = await page.evaluate(() => window.__tvaMode());
+      const state = await page.evaluate(() => window.__tvaPlayerState());
+      const rate = await page.evaluate(() => window.__tvaGraph().ctx.sampleRate);
       const msg = await page.textContent('#msg');
-      return { sound, mode, msg };
+      return { sound, mode: state.mode, state, rate, msg };
     };
 
     const setBalance = async (at) => page.evaluate((v) => {
@@ -835,7 +836,8 @@ try {
       const got = await throughTheEngine(monoPath, 'MONO TAKE', 85);
       check('a mono recording plays through the speed engine',
         got.sound.peak > AUDIBLE && got.mode === 'practice',
-        `${heard(got.sound)}, mode ${got.mode}${got.msg ? `, message: ${got.msg}` : ''}`);
+        `${heard(got.sound)}, ${JSON.stringify(got.state)}, sample rate ${got.rate}`
+        + `${got.msg ? `, message: ${got.msg}` : ''}`);
 
       /* AND OUT OF BOTH SIDES. The whole reason a single channel is duplicated is
          that the balance control still has two sides to work with; a mono song
@@ -856,7 +858,8 @@ try {
       const got = await throughTheEngine(fortyEightPath, 'FORTY EIGHT', 90);
       check('a 48 kHz file plays through the speed engine',
         got.sound.peak > AUDIBLE && got.mode === 'practice',
-        `${heard(got.sound)}, mode ${got.mode}${got.msg ? `, message: ${got.msg}` : ''}`);
+        `${heard(got.sound)}, ${JSON.stringify(got.state)}, sample rate ${got.rate}`
+        + `${got.msg ? `, message: ${got.msg}` : ''}`);
       await page.dblclick('.knob[data-knob="speed"]').catch(() => {});
     }
 
@@ -864,7 +867,8 @@ try {
       const got = await throughTheEngine(rawTakePath, 'RAW TAKE', 80);
       check('a WAV, which is what his own recordings are, plays through it too',
         got.sound.peak > AUDIBLE && got.mode === 'practice',
-        `${heard(got.sound)}, mode ${got.mode}${got.msg ? `, message: ${got.msg}` : ''}`);
+        `${heard(got.sound)}, ${JSON.stringify(got.state)}, sample rate ${got.rate}`
+        + `${got.msg ? `, message: ${got.msg}` : ''}`);
       await page.dblclick('.knob[data-knob="speed"]').catch(() => {});
     }
 

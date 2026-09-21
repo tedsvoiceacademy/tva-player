@@ -38,6 +38,25 @@ makeSong(extraSongs[1], { seconds: 3 });
 /* One side deliberately quieter than the other, so the two halves of the
    waveform picture can be told apart. With a normal test tone both sides are
    identical and drawing the same channel twice would look perfect. */
+/* THE SHAPES OF FILE THE SPEED ENGINE HAD NEVER BEEN GIVEN.
+ *
+ * Every song in this suite was a 128 kbps, 44.1 kHz, STEREO MP3 of two sine
+ * tones. So player.js's mono branch — the line that duplicates a single channel
+ * so the tail has two sides, three lines from the call that was leaving Ted with
+ * a silent player — had never once run in a check. A voice memo, a
+ * single-microphone take from this very app, or any mono recording would have run
+ * it for the first time on his machine.
+ *
+ * These three are opened the way a dropped file is, rather than being put in the
+ * music folder, because the library's contents are asserted elsewhere and adding
+ * to them would move checks that have nothing to do with this. */
+const monoPath = join(work, 'Mono Take.mp3');
+await makeMp3(monoPath, { seconds: 40, channels: 1 });
+const fortyEightPath = join(work, 'Forty Eight.mp3');
+await makeMp3(fortyEightPath, { seconds: 40, sampleRate: 48000 });
+const rawTakePath = join(work, 'Raw Take.wav');
+makeSong(rawTakePath, { seconds: 40 });
+
 const oneSidedPath = join(work, 'One Sided.mp3');
 await makeMp3(oneSidedPath, { seconds: 4, rightGain: 0.25 });
 const droppedPath = join(work, 'Dropped In.mp3');
@@ -203,6 +222,17 @@ control('apps/desktop/dist/renderer/audio/player.js',
   'if (false) {', 'throwing away a stale engine', 'stale',
   ['and the engine built for the first one is thrown away, not wired in']);
 
+/* TEN — a mono file handled as though every song had two channels. This is what
+   the mistake really looks like: not a missing guard but an assumption, written
+   once and true of every file anyone tested with. getChannelData(1) throws on a
+   mono recording, the engine refuses to start, and the song plays on at normal
+   speed with a message — which is far better than silence, and still not what the
+   person asked for. */
+control('apps/desktop/dist/renderer/audio/player.js',
+  'if (chans.length === 1) chans.push(chans[0]);',
+  'chans.push(buffer.getChannelData(1));', 'a mono recording', 'mono',
+  ['a mono recording plays through the speed engine']);
+
 let mutations = [];
 let mustGoRed = [];
 if (NEGATIVE) {
@@ -298,6 +328,19 @@ try {
   check('and the play button becomes usable', true);
   check('the song\'s length is read', (await page.textContent('#t-total')) === '0:06',
     `clock reads ${await page.textContent('#t-total')}`);
+
+  /* HOW MANY SONGS THE LAUNCH ITSELF DELIVERED, read here and nowhere later.
+     The counter keeps counting, and checks further down open files of their own —
+     read at the end it reported "6 of 3", which is three later checks doing their
+     job rather than anything being wrong. Taken at the top, no check that is added
+     below can move it. It waits, because the command line's songs arrive together
+     a moment after start-up rather than with the first one. */
+  const launchOpened = await page.evaluate(async () => {
+    for (let i = 0; i < 100 && (window.__tvaOpenedCount ?? 0) < 3; i++) {
+      await new Promise((r) => setTimeout(r, 100));
+    }
+    return window.__tvaOpenedCount ?? 0;
+  });
 
   console.log('\n--- it plays ---');
   await page.click('#play');
@@ -733,6 +776,107 @@ try {
     await page.waitForTimeout(400);
   }
 
+  console.log('\n--- the kinds of file Ted actually has, through the speed engine ---');
+  {
+    /* NOT PLAIN PLAYBACK — THE ENGINE. Plain playback is the browser's own
+     * decoder and was never where the fault was. What had never been exercised is
+     * the app's own handover: decoding a file, pulling its channels out, and
+     * handing them to the stretch engine.
+     *
+     * Three shapes of file, none of which existed anywhere in this project until
+     * now:
+     *
+     *   MONO — player.js duplicates the single channel so the tail has two sides
+     *     and the balance control still means something. That line had never run.
+     *   48 kHz — a file whose rate differs from the one the sound card is running
+     *     at, so the browser resamples it on the way in.
+     *   WAV — the format his own recordings come out of. There was a WAV in the
+     *     suite, but it only ever went past the engine, never through it.
+     *
+     * Each one has to make a REAL SOUND and be ON THE ENGINE. Either alone can be
+     * true while the app is broken: an engine that died is put back onto plain
+     * playback, which sounds right and is not what was asked for. */
+    const throughTheEngine = async (path, shown, speed) => {
+      await page.click('#stop').catch(() => {});
+      await page.evaluate((p) => window.tva.openDropped([p]), path);
+      await page.waitForFunction(
+        (n) => document.getElementById('now-name').textContent.includes(n)
+          && !document.getElementById('play').disabled,
+        shown, { timeout: 30000 }).catch(() => {});
+      /* Decided from the player, not from the button's label: the label is
+         painted by an event and can still show the last song's state. */
+      if (!(await page.evaluate(() => window.__tvaPlayerState().playing))) await page.click('#play');
+      await page.waitForFunction(
+        () => window.__tvaPlayerState().playing, { timeout: 15000 }).catch(() => {});
+      await page.waitForTimeout(600);
+
+      await page.evaluate((v) => {
+        const el = document.getElementById('speed');
+        el.value = String(v);
+        el.dispatchEvent(new Event('input', { bubbles: true }));
+      }, speed);
+      await page.waitForFunction(
+        () => window.__tvaMode && window.__tvaMode() === 'practice',
+        { timeout: 60000 }).catch(() => {});
+
+      const sound = await soundCameOut(page, 1200);
+      const mode = await page.evaluate(() => window.__tvaMode());
+      const msg = await page.textContent('#msg');
+      return { sound, mode, msg };
+    };
+
+    const setBalance = async (at) => page.evaluate((v) => {
+      const el = document.getElementById('balance');
+      el.value = String(v);
+      el.dispatchEvent(new Event('input', { bubbles: true }));
+    }, at);
+
+    {
+      const got = await throughTheEngine(monoPath, 'MONO TAKE', 85);
+      check('a mono recording plays through the speed engine',
+        got.sound.peak > AUDIBLE && got.mode === 'practice',
+        `${heard(got.sound)}, mode ${got.mode}${got.msg ? `, message: ${got.msg}` : ''}`);
+
+      /* AND OUT OF BOTH SIDES. The whole reason a single channel is duplicated is
+         that the balance control still has two sides to work with; a mono song
+         that went silent at one end of that control would be a mono song a person
+         could not use. */
+      await setBalance(-100);
+      const leftOnly = await soundCameOut(page, 900);
+      await setBalance(100);
+      const rightOnly = await soundCameOut(page, 900);
+      await setBalance(0);
+      check('and it is audible with the balance hard over either way',
+        leftOnly.peak > AUDIBLE && rightOnly.peak > AUDIBLE,
+        `left ${leftOnly.peak.toFixed(4)}, right ${rightOnly.peak.toFixed(4)}`);
+      await page.dblclick('.knob[data-knob="speed"]').catch(() => {});
+    }
+
+    {
+      const got = await throughTheEngine(fortyEightPath, 'FORTY EIGHT', 90);
+      check('a 48 kHz file plays through the speed engine',
+        got.sound.peak > AUDIBLE && got.mode === 'practice',
+        `${heard(got.sound)}, mode ${got.mode}${got.msg ? `, message: ${got.msg}` : ''}`);
+      await page.dblclick('.knob[data-knob="speed"]').catch(() => {});
+    }
+
+    {
+      const got = await throughTheEngine(rawTakePath, 'RAW TAKE', 80);
+      check('a WAV, which is what his own recordings are, plays through it too',
+        got.sound.peak > AUDIBLE && got.mode === 'practice',
+        `${heard(got.sound)}, mode ${got.mode}${got.msg ? `, message: ${got.msg}` : ''}`);
+      await page.dblclick('.knob[data-knob="speed"]').catch(() => {});
+    }
+
+    // Back to the song the rest of the checks expect.
+    await page.click('#stop').catch(() => {});
+    await page.evaluate(() => window.__tvaOpenFirstArg());
+    await page.waitForFunction(
+      () => document.getElementById('now-name').textContent.includes('TEST SONG'),
+      { timeout: 20000 }).catch(() => {});
+    await page.waitForTimeout(400);
+  }
+
   console.log('\n--- the dials themselves ---');
   {
     /* DOUBLE-CLICK PUTS A DIAL BACK. Ted asked for it and every dial on a desk
@@ -1028,10 +1172,6 @@ try {
       () => document.getElementById('now-name').textContent.includes('TEST SONG'),
       { timeout: 15000 });
   }
-
-  /* How many songs the launch itself delivered. Read here rather than at the
-     end: the counter keeps counting, and later checks open songs of their own. */
-  const launchOpened = await page.evaluate(() => window.__tvaOpenedCount ?? 0);
 
   console.log('\n--- the tabs ---');
   {

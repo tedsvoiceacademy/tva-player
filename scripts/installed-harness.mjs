@@ -80,6 +80,13 @@ await makeMp3(songPath, { seconds: 8, shape: true });
  * encode, and nothing asserts its length. */
 const longPath = join(musicDir, 'Packaged Long.mp3');
 await makeMp3(longPath, { seconds: 240 });
+/* AND A MONO ONE. player.js duplicates a single channel so the tail has two
+   sides, three lines from the call that was leaving the player silent — and
+   until now every test song in this project was stereo, so that line had never
+   run anywhere, let alone out of the package. Opened as a dropped file rather
+   than put in the music folder, because the folder's contents are asserted. */
+const monoPath = join(work, 'Mono Take.mp3');
+await makeMp3(monoPath, { seconds: 40, channels: 1 });
 
 await mkdir(join(work, 'ud', 'Player Settings'), { recursive: true });
 await writeFile(join(work, 'ud', 'Player Settings', 'settings.json'),
@@ -468,6 +475,35 @@ try {
     await page.dblclick('.knob[data-knob="speed"]').catch(() => {});
     await page.waitForTimeout(300);
     if (await page.evaluate(() => window.__tvaPlayerState().playing)) await page.click('#play');
+
+    /* AND A MONO RECORDING, out of the package. */
+    await page.click('#stop').catch(() => {});
+    await page.evaluate((p) => window.tva.openDropped([p]), monoPath);
+    await page.waitForFunction(
+      () => document.getElementById('now-name').textContent.includes('MONO')
+        && !document.getElementById('play').disabled,
+      { timeout: 30000 }).catch(() => {});
+    if (!(await page.evaluate(() => window.__tvaPlayerState().playing))) await page.click('#play');
+    await page.waitForFunction(
+      () => window.__tvaPlayerState().playing, { timeout: 15000 }).catch(() => {});
+    await page.waitForTimeout(600);
+    await page.evaluate(() => {
+      const el = document.getElementById('speed');
+      el.value = '85';
+      el.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    await page.waitForFunction(
+      () => window.__tvaMode && window.__tvaMode() === 'practice',
+      { timeout: 60000 }).catch(() => {});
+    const monoSound = await soundCameOut(page, 1200);
+    const monoMode = await page.evaluate(() => window.__tvaMode());
+    check('a mono recording plays through the speed engine, out of the package',
+      monoSound.peak > AUDIBLE && monoMode === 'practice',
+      `${heard(monoSound)}, mode ${monoMode}`);
+    await page.dblclick('.knob[data-knob="speed"]').catch(() => {});
+    await page.waitForTimeout(300);
+    if (await page.evaluate(() => window.__tvaPlayerState().playing)) await page.click('#play');
+
     await page.evaluate(async () => { await window.__tvaOpenFirstArg(); });
     await page.waitForFunction(
       () => document.getElementById('t-total').textContent === '0:08', { timeout: 20000 }).catch(() => {});

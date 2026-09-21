@@ -21,8 +21,18 @@ export async function makeMp3(path, opts = {}) {
   /* rightGain turns one side down, which is how a check can tell that the two
      halves of the waveform picture really come from the two channels and not
      from the same one drawn twice. */
+  /* channels: 1 makes a MONO file, and that is not a detail.
+   *
+   * player.js duplicates a single channel when it hands a song to the speed
+   * engine, so the tail always has two sides and the balance control still means
+   * something — and until this option existed there was no mono file anywhere in
+   * this project, so that line had never once run in a check. It sits three lines
+   * from the call that was making Ted's player silent. A voice memo, a
+   * single-microphone take from this very app, or any mono recording would have
+   * run it for the first time on his machine. */
   const {
     seconds = 6, sampleRate = 44100, left = 440, right = 660, shape = false, rightGain = 1,
+    channels = 2,
   } = opts;
   const frames = Math.round(seconds * sampleRate);
   const l = new Int16Array(frames);
@@ -36,11 +46,16 @@ export async function makeMp3(path, opts = {}) {
     r[i] = Math.round(Math.sin(2 * Math.PI * right * t) * 0.4 * env * rightGain * 32767);
   }
 
-  const encoder = new Mp3Encoder(2, sampleRate, 128);
+  const mono = channels === 1;
+  const encoder = new Mp3Encoder(mono ? 1 : 2, sampleRate, 128);
   const chunks = [];
   const BLOCK = 1152;
   for (let i = 0; i < frames; i += BLOCK) {
-    const buf = encoder.encodeBuffer(l.subarray(i, i + BLOCK), r.subarray(i, i + BLOCK));
+    // A mono file is encoded from one buffer; the encoder is told so above, and
+    // handing it a second one here would silently make it stereo again.
+    const buf = mono
+      ? encoder.encodeBuffer(l.subarray(i, i + BLOCK))
+      : encoder.encodeBuffer(l.subarray(i, i + BLOCK), r.subarray(i, i + BLOCK));
     if (buf.length) chunks.push(Buffer.from(buf));
   }
   const tail = encoder.flush();

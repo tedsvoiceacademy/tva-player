@@ -60,6 +60,13 @@ jobs:
       - name: And prove the stale-engine check can fail
         run: xvfb-run -a node scripts/app-harness.mjs --negative-control --only=stale
 
+      # A MONO RECORDING, handled as though every song had two channels. Every
+      # test song in this project was stereo until now, so the line that copes
+      # with one channel had never run — three lines from the call that was
+      # leaving the player silent.
+      - name: And prove the mono check can fail
+        run: xvfb-run -a node scripts/app-harness.mjs --negative-control --only=mono
+
       # THE PACKAGED APP, which is not the same thing as the source folder.
       # Packaging puts everything in an asar archive and changes how files are
       # found inside it, so the protocol that serves the page, the worklet

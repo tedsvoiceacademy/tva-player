@@ -810,6 +810,21 @@ try {
         () => window.__tvaPlayerState().playing, { timeout: 15000 }).catch(() => {});
       await page.waitForTimeout(600);
 
+      /* IT IS REALLY PLAYING BEFORE THE DIAL MOVES, AND SAID SO SEPARATELY.
+       *
+       * A song that never started makes the engine land switched off, which
+       * measures as silence and reads exactly like a broken engine. The installed
+       * check went red once on the Windows runner that way — "peak 0.0000, mode
+       * practice" — and passed on the next run with nothing in the app changed.
+       * Two failures that look identical and mean opposite things need telling
+       * apart on a machine nobody can attach a debugger to, so the precondition
+       * is its own named check rather than a silent wait. */
+      const before = await page.evaluate(() => window.__tvaPlayerState());
+      const beforeSound = await soundCameOut(page, 900);
+      check(`${shown.toLowerCase()} is really playing before the speed is touched`,
+        before.playing && beforeSound.peak > AUDIBLE,
+        `${heard(beforeSound)}, ${JSON.stringify(before)}`);
+
       await page.evaluate((v) => {
         const el = document.getElementById('speed');
         el.value = String(v);

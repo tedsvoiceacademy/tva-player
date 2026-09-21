@@ -1,6 +1,6 @@
 # TVA Player
 
-**Status:** 🟢 Active
+**Status:** 🟡 Active
 **Last reviewed:** 2026-09-21
 
 ## What it does
@@ -18,4 +18,3 @@ The repository is active and has been cloned locally so it can be opened and wor
 
 ## Next steps
 - Continue Windows validation and product development through the repository's documented test and build workflow.
-

@@ -15,6 +15,7 @@ import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { makeSong, makeMp3 } from './make-test-song.mjs';
 import { soundCameOut, AUDIBLE, heard } from './sound-meter.mjs';
+import { placeFixture } from './fixtures.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const NEGATIVE = process.argv.includes('--negative-control');
@@ -56,6 +57,17 @@ const fortyEightPath = join(work, 'Forty Eight.mp3');
 await makeMp3(fortyEightPath, { seconds: 40, sampleRate: 48000 });
 const rawTakePath = join(work, 'Raw Take.wav');
 makeSong(rawTakePath, { seconds: 40 });
+
+/* AND THE TWO FORMATS THE APP OFFERS AND NO CHECK HAD EVER OPENED. It tells a
+   person it plays "an MP3, an M4A, a WAV or a FLAC", and Ted has both of the ones
+   nothing here could make. Committed rather than generated, because nothing
+   available to this project can encode them — scripts/fixtures/README.md has the
+   whole reason. The third is a VARIABLE bitrate MP3 with a tag on the front,
+   which is how real music arrives and which the constant-bitrate generator here
+   cannot produce either. */
+const m4aPath = await placeFixture('Take.m4a', work);
+const flacPath = await placeFixture('Take.flac', work);
+const vbrPath = await placeFixture('Variable.mp3', work);
 
 const oneSidedPath = join(work, 'One Sided.mp3');
 await makeMp3(oneSidedPath, { seconds: 4, rightGain: 0.25 });
@@ -883,6 +895,33 @@ try {
       check('a WAV, which is what his own recordings are, plays through it too',
         got.sound.peak > AUDIBLE && got.mode === 'practice',
         `${heard(got.sound)}, ${JSON.stringify(got.state)}, sample rate ${got.rate}`
+        + `${got.msg ? `, message: ${got.msg}` : ''}`);
+      await page.dblclick('.knob[data-knob="speed"]').catch(() => {});
+    }
+
+    {
+      const got = await throughTheEngine(m4aPath, 'TAKE.M4A', 85);
+      check('an M4A plays through the speed engine',
+        got.sound.peak > AUDIBLE && got.mode === 'practice',
+        `${heard(got.sound)}, ${JSON.stringify(got.state)}`
+        + `${got.msg ? `, message: ${got.msg}` : ''}`);
+      await page.dblclick('.knob[data-knob="speed"]').catch(() => {});
+    }
+
+    {
+      const got = await throughTheEngine(flacPath, 'TAKE.FLAC', 90);
+      check('a FLAC plays through the speed engine',
+        got.sound.peak > AUDIBLE && got.mode === 'practice',
+        `${heard(got.sound)}, ${JSON.stringify(got.state)}`
+        + `${got.msg ? `, message: ${got.msg}` : ''}`);
+      await page.dblclick('.knob[data-knob="speed"]').catch(() => {});
+    }
+
+    {
+      const got = await throughTheEngine(vbrPath, 'VARIABLE.MP3', 75);
+      check('and an MP3 at a variable bitrate, which is what most music is',
+        got.sound.peak > AUDIBLE && got.mode === 'practice',
+        `${heard(got.sound)}, ${JSON.stringify(got.state)}`
         + `${got.msg ? `, message: ${got.msg}` : ''}`);
       await page.dblclick('.knob[data-knob="speed"]').catch(() => {});
     }

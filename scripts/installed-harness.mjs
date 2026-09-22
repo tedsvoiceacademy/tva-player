@@ -18,6 +18,7 @@ import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { makeSong, makeMp3 } from './make-test-song.mjs';
 import { soundCameOut, AUDIBLE, heard } from './sound-meter.mjs';
+import { placeFixture } from './fixtures.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -87,6 +88,16 @@ await makeMp3(longPath, { seconds: 240 });
    than put in the music folder, because the folder's contents are asserted. */
 const monoPath = join(work, 'Mono Take.mp3');
 await makeMp3(monoPath, { seconds: 40, channels: 1 });
+/* THE TWO FORMATS THE APP OFFERS AND NOTHING HERE CAN ENCODE, plus a variable
+   bitrate MP3 with a tag on the front. Committed rather than generated — see
+   scripts/fixtures/README.md. These matter out of the package as much as in it:
+   it is the packaged copy Ted installs. */
+const formatFixtures = [
+  ['Take.m4a', 'TAKE.M4A', 'an M4A'],
+  ['Take.flac', 'TAKE.FLAC', 'a FLAC'],
+  ['Variable.mp3', 'VARIABLE.MP3', 'an MP3 at a variable bitrate'],
+];
+for (const row of formatFixtures) row.push(await placeFixture(row[0], work));
 
 await mkdir(join(work, 'ud', 'Player Settings'), { recursive: true });
 await writeFile(join(work, 'ud', 'Player Settings', 'settings.json'),
@@ -517,6 +528,38 @@ try {
     await page.dblclick('.knob[data-knob="speed"]').catch(() => {});
     await page.waitForTimeout(300);
     if (await page.evaluate(() => window.__tvaPlayerState().playing)) await page.click('#play');
+
+    /* AND THE FORMATS THE APP OFFERS, out of the package. Each has to make a real
+       sound AND be on the engine: an engine that died falls back to plain
+       playback, which sounds right and is not what was asked for. */
+    for (const [, shown, called, path] of formatFixtures) {
+      await page.click('#stop').catch(() => {});
+      await page.evaluate((p) => window.tva.openDropped([p]), path);
+      await page.waitForFunction(
+        (n) => document.getElementById('now-name').textContent.includes(n)
+          && !document.getElementById('play').disabled,
+        shown, { timeout: 30000 }).catch(() => {});
+      if (!(await page.evaluate(() => window.__tvaPlayerState().playing))) await page.click('#play');
+      await page.waitForFunction(
+        () => window.__tvaPlayerState().playing, { timeout: 15000 }).catch(() => {});
+      await page.waitForTimeout(600);
+      await page.evaluate(() => {
+        const el = document.getElementById('speed');
+        el.value = '85';
+        el.dispatchEvent(new Event('input', { bubbles: true }));
+      });
+      await page.waitForFunction(
+        () => window.__tvaMode && window.__tvaMode() === 'practice',
+        { timeout: 60000 }).catch(() => {});
+      const sound = await soundCameOut(page, 1200);
+      const state = await page.evaluate(() => window.__tvaPlayerState());
+      check(`${called} plays through the speed engine, out of the package`,
+        sound.peak > AUDIBLE && state.mode === 'practice',
+        `${heard(sound)}, ${JSON.stringify(state)}, message ${await page.textContent('#msg')}`);
+      await page.dblclick('.knob[data-knob="speed"]').catch(() => {});
+      await page.waitForTimeout(300);
+      if (await page.evaluate(() => window.__tvaPlayerState().playing)) await page.click('#play');
+    }
 
     await page.evaluate(async () => { await window.__tvaOpenFirstArg(); });
     await page.waitForFunction(

@@ -358,7 +358,12 @@ export class Player {
     /* AND IF IT DIES ANYWAY, SAY SO. This is reported nowhere else — not as an
        exception, not in the console — so without it a dead engine is a player
        that looks perfect and makes no sound. */
-    node.onprocessorerror = () => this._engineDied();
+    /* WHAT KILLED IT, KEPT. A browser destroys a processor that throws and tells
+       nobody — no exception, nothing in the console, and this event is the only
+       place the reason appears. Thrown away, a dead engine on one machine and not
+       another is a week of guessing; kept, the check that goes red says what
+       threw. */
+    node.onprocessorerror = (e) => this._engineDied(e?.message ?? String(e ?? 'no reason given'));
 
     const chans = [];
     for (let c = 0; c < buffer.numberOfChannels; c++) chans.push(buffer.getChannelData(c));
@@ -377,7 +382,8 @@ export class Player {
    * fixed above, and this is what happens if another ever turns up — the song
    * carries on at normal speed from where it was, and the page says so, rather
    * than the app going quiet with no way back. */
-  _engineDied() {
+  _engineDied(why) {
+    this.engineDiedWhy = why ?? null;
     const at = this.practiceTime;
     const wasPlaying = this._practicePlaying === true;
     this.stretch = null;

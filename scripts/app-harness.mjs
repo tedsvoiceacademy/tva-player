@@ -576,9 +576,12 @@ try {
        by an event and can still be showing the last song's state for a moment
        after a new one opens, so a check that reads it can decide not to press
        play and then measure the silence it caused itself. */
-    if (!(await page.evaluate(() => window.__tvaPlayerState().playing))) await page.click('#play');
-    await page.waitForFunction(
-      () => window.__tvaPlayerState().playing, { timeout: 15000 }).catch(() => {});
+    for (let go = 0; go < 3; go++) {
+      if (await page.evaluate(() => window.__tvaPlayerState().playing)) break;
+      await page.click('#play').catch(() => {});
+      await page.waitForFunction(
+        () => window.__tvaPlayerState().playing, { timeout: 5000 }).catch(() => {});
+    }
     await page.waitForTimeout(800);
     {
       const m = await soundCameOut(page, 700);
@@ -637,7 +640,15 @@ try {
       () => window.__tvaMode && window.__tvaMode() === 'practice',
       { timeout: 60000 }).catch(() => {});
     await page.waitForTimeout(600);
-    if (!(await page.evaluate(() => window.__tvaPlayerState().playing))) await page.click('#play');
+    /* Pressed until it takes. This one measures immediately afterwards, so a
+       click that did not land would be read as an engine that makes no sound —
+       which is the opposite of what this check is about. */
+    for (let go = 0; go < 3; go++) {
+      if (await page.evaluate(() => window.__tvaPlayerState().playing)) break;
+      await page.click('#play').catch(() => {});
+      await page.waitForFunction(
+        () => window.__tvaPlayerState().playing, { timeout: 5000 }).catch(() => {});
+    }
     const woken = await soundCameOut(page, 1500);
     const wokenMode = await page.evaluate(() => window.__tvaMode());
     check('and an engine built on a stopped song plays when play is pressed',
@@ -815,11 +826,21 @@ try {
         (n) => document.getElementById('now-name').textContent.includes(n)
           && !document.getElementById('play').disabled,
         shown, { timeout: 30000 }).catch(() => {});
-      /* Decided from the player, not from the button's label: the label is
-         painted by an event and can still show the last song's state. */
-      if (!(await page.evaluate(() => window.__tvaPlayerState().playing))) await page.click('#play');
-      await page.waitForFunction(
-        () => window.__tvaPlayerState().playing, { timeout: 15000 }).catch(() => {});
+      /* PRESSED UNTIL IT IS PLAYING, not pressed once and hoped over.
+       *
+       * Decided from the player rather than the button's label, because the label
+       * is painted by an event and can still be showing the last song's state. But
+       * one read and one click is a race all the same: on the build runner two of
+       * six files came back "playing: false, elPaused: true, elTime: 0" — the song
+       * had simply never started, and the engine check after it went red for that
+       * and not for anything about the engine. Three attempts, and the named check
+       * below still fails loudly if it never plays, so this hides nothing. */
+      for (let go = 0; go < 3; go++) {
+        if (await page.evaluate(() => window.__tvaPlayerState().playing)) break;
+        await page.click('#play').catch(() => {});
+        await page.waitForFunction(
+          () => window.__tvaPlayerState().playing, { timeout: 5000 }).catch(() => {});
+      }
       await page.waitForTimeout(600);
 
       /* IT IS REALLY PLAYING BEFORE THE DIAL MOVES, AND SAID SO SEPARATELY.

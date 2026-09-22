@@ -457,9 +457,12 @@ try {
       { timeout: 40000 }).catch(() => {});
     /* Decided from the player, not from the button's label: the label is painted
        by an event and can still show the last song's state for a moment. */
-    if (!(await page.evaluate(() => window.__tvaPlayerState().playing))) await page.click('#play');
-    await page.waitForFunction(
-      () => window.__tvaPlayerState().playing, { timeout: 15000 }).catch(() => {});
+    for (let go = 0; go < 3; go++) {
+      if (await page.evaluate(() => window.__tvaPlayerState().playing)) break;
+      await page.click('#play').catch(() => {});
+      await page.waitForFunction(
+        () => window.__tvaPlayerState().playing, { timeout: 5000 }).catch(() => {});
+    }
     await page.waitForTimeout(800);
     {
       const m = await soundCameOut(page, 700);
@@ -494,9 +497,12 @@ try {
       () => document.getElementById('now-name').textContent.includes('MONO')
         && !document.getElementById('play').disabled,
       { timeout: 30000 }).catch(() => {});
-    if (!(await page.evaluate(() => window.__tvaPlayerState().playing))) await page.click('#play');
-    await page.waitForFunction(
-      () => window.__tvaPlayerState().playing, { timeout: 15000 }).catch(() => {});
+    for (let go = 0; go < 3; go++) {
+      if (await page.evaluate(() => window.__tvaPlayerState().playing)) break;
+      await page.click('#play').catch(() => {});
+      await page.waitForFunction(
+        () => window.__tvaPlayerState().playing, { timeout: 5000 }).catch(() => {});
+    }
     await page.waitForTimeout(600);
 
     /* BEFORE THE DIAL IS TOUCHED, and said out loud. A song that never started
@@ -539,9 +545,15 @@ try {
         (n) => document.getElementById('now-name').textContent.includes(n)
           && !document.getElementById('play').disabled,
         shown, { timeout: 30000 }).catch(() => {});
-      if (!(await page.evaluate(() => window.__tvaPlayerState().playing))) await page.click('#play');
-      await page.waitForFunction(
-        () => window.__tvaPlayerState().playing, { timeout: 15000 }).catch(() => {});
+      /* Pressed until it is playing. One read and one click is a race: on the
+         build runner a song came back never having started, and the engine check
+         after it went red for that rather than for the engine. */
+      for (let go = 0; go < 3; go++) {
+        if (await page.evaluate(() => window.__tvaPlayerState().playing)) break;
+        await page.click('#play').catch(() => {});
+        await page.waitForFunction(
+          () => window.__tvaPlayerState().playing, { timeout: 5000 }).catch(() => {});
+      }
       await page.waitForTimeout(600);
       await page.evaluate(() => {
         const el = document.getElementById('speed');

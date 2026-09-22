@@ -1200,6 +1200,7 @@ window.__tvaPlayerState = () => ({
   elTime: player.el ? Number(player.el.currentTime.toFixed(2)) : null,
   practiceTime: Number(player.practiceTime.toFixed(2)),
   engineStarts: player.engineStarts,
+  engineDiedWhy: player.engineDiedWhy ?? null,
   duration: Number((player.duration || 0).toFixed(2)),
 });
 window.__tvaGraph = () => player.graph;
